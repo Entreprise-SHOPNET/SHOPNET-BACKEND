@@ -1,25 +1,42 @@
 
 
-// db.js - Version corrigée et optimisée
-const mysql = require('mysql2/promise'); // Modification cruciale ici
+require('dotenv').config();
+const mysql = require('mysql2/promise');
+const url = require('url');
 
-// Configuration du pool de connexions
+if (!process.env.MYSQL_PUBLIC_URL) {
+  console.error("❌ La variable d'environnement MYSQL_PUBLIC_URL est manquante.");
+  process.exit(1);
+}
+
+const params = url.parse(process.env.MYSQL_PUBLIC_URL);
+
+if (!params.auth || !params.hostname || !params.pathname) {
+  console.error("❌ MYSQL_PUBLIC_URL invalide dans .env");
+  process.exit(1);
+}
+
+const [user, password] = params.auth.split(':');
+const database = params.pathname.replace('/', '');
+const host = params.hostname;
+const port = params.port ? parseInt(params.port) : 3306;
+
 const pool = mysql.createPool({
-  host: 'localhost',
-  user: 'root',
-  password: 'MySQL_2025#Pass',
-  database: 'shopnet',
+  host,
+  user,
+  password,
+  database,
+  port,
   waitForConnections: true,
   connectionLimit: 10,
-  queueLimit: 0
+  queueLimit: 0,
 });
 
-// Test de connexion au démarrage
 async function testConnection() {
   let connection;
   try {
     connection = await pool.getConnection();
-    console.log('✅ Connecté à MySQL');
+    console.log(`✅ Connecté à MySQL sur ${host}:${port} base "${database}"`);
   } catch (err) {
     console.error('❌ Erreur de connexion MySQL:', err.message);
     process.exit(1);
@@ -28,8 +45,6 @@ async function testConnection() {
   }
 }
 
-// Exécution du test
 testConnection();
 
-// Export direct du pool (qui a déjà les méthodes promises)
 module.exports = pool;
