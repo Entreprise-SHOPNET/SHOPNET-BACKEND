@@ -83,29 +83,30 @@ router.get('/', authMiddleware, async (req, res) => {
       ORDER BY p.created_at DESC
       LIMIT 100
     `, [userId]);
-
-    const formatted = products.map(product => ({
-      ...product,
-      images: product.images || [],
-      image_urls: product.image_urls || [],
-      delivery_options: safeJsonParse(product.delivery_options),
-      price: parseFloat(product.price) || 0,
-      original_price: product.original_price ? parseFloat(product.original_price) : null,
-      stock: parseInt(product.stock) || 0,
-      likes: product.likes_count || 0,
-      shares: product.shares_count ?? 0,
-      isLiked: Boolean(product.isLiked),
-      comments: product.comments_count ?? 0,
-      seller: {
-        id: product.seller_id?.toString(),
-        name: product.seller_name,
-        avatar: product.seller_avatar
-          ? (product.seller_avatar.startsWith('http')
-              ? product.seller_avatar
-              : `${req.protocol}://${req.get('host')}${product.seller_avatar}`)
-          : null
-      }
-    }));
+const formatted = products.map(product => ({
+  ...product,
+  title: product.title ?? "Titre non disponible",
+  description: product.description ?? "Description non disponible",
+  images: product.images || [],
+  image_urls: product.image_urls || [],
+  delivery_options: safeJsonParse(product.delivery_options),
+  price: parseFloat(product.price) || 0,
+  original_price: product.original_price ? parseFloat(product.original_price) : null,
+  stock: parseInt(product.stock) || 0,
+  likes: product.likes_count || 0,
+  shares: product.shares_count ?? 0,
+  isLiked: Boolean(product.isLiked),
+  comments: product.comments_count ?? 0,
+  seller: {
+    id: product.seller_id?.toString(),
+    name: product.seller_name ?? "Vendeur inconnu",
+    avatar: product.seller_avatar
+      ? (product.seller_avatar.startsWith('http')
+          ? product.seller_avatar
+          : `${req.protocol}://${req.get('host')}${product.seller_avatar}`)
+      : null
+  }
+}));
 
     res.json({ success: true, count: formatted.length, products: formatted });
   } catch (error) {

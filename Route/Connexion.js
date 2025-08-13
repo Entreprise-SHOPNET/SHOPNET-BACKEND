@@ -3,7 +3,7 @@
 
 const express = require('express');
 const router = express.Router();
-const bcrypt = require('bcrypt');
+const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken'); // 🔑 Import du module JWT
 
 router.post('/login', async (req, res) => {
