@@ -2,7 +2,7 @@
 
 const express = require('express');
 const router = express.Router();
-const pool = require('../Backende/db');
+const pool = require('../db');
 
 const categoryMap = {
   'bébé': ['baby', 'enfant', 'kid', 'clothing', 'poussette'],
