@@ -1,6 +1,6 @@
 
 
-
+ORDER BY 
 const express = require('express');
 const multer = require('multer');
 const path = require('path');
@@ -61,9 +61,19 @@ const safeJsonParse = (str) => {
 // ----------------------------
 // GET /products — Liste complète (inchangé)
 // ----------------------------
+// ----------------------------
+// GET /products — Liste avec pagination
+// ----------------------------
 router.get('/', authMiddleware, async (req, res) => {
   try {
     const userId = req.userId;
+
+    // Pagination: page par défaut = 1, limite par défaut = 50
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 50;
+    const offset = (page - 1) * limit;
+
+    // Requête principale avec OFFSET/LIMIT
     const [products] = await db.query(`
       SELECT 
         p.*,
@@ -81,34 +91,49 @@ router.get('/', authMiddleware, async (req, res) => {
       FROM products p
       LEFT JOIN utilisateurs u ON p.seller_id = u.id
       ORDER BY p.created_at DESC
-      LIMIT 100
-    `, [userId]);
-const formatted = products.map(product => ({
-  ...product,
-  title: product.title ?? "Titre non disponible",
-  description: product.description ?? "Description non disponible",
-  images: product.images || [],
-  image_urls: product.image_urls || [],
-  delivery_options: safeJsonParse(product.delivery_options),
-  price: parseFloat(product.price) || 0,
-  original_price: product.original_price ? parseFloat(product.original_price) : null,
-  stock: parseInt(product.stock) || 0,
-  likes: product.likes_count || 0,
-  shares: product.shares_count ?? 0,
-  isLiked: Boolean(product.isLiked),
-  comments: product.comments_count ?? 0,
-  seller: {
-    id: product.seller_id?.toString(),
-    name: product.seller_name ?? "Vendeur inconnu",
-    avatar: product.seller_avatar
-      ? (product.seller_avatar.startsWith('http')
-          ? product.seller_avatar
-          : `${req.protocol}://${req.get('host')}${product.seller_avatar}`)
-      : null
-  }
-}));
+      LIMIT ? OFFSET ?
+    `, [userId, limit, offset]);
 
-    res.json({ success: true, count: formatted.length, products: formatted });
+    // Compter le total pour pagination
+    const [[{ total }]] = await db.query(`SELECT COUNT(*) AS total FROM products`);
+
+    // Formatter le résultat
+    const formatted = products.map(product => ({
+      ...product,
+      title: product.title ?? "Titre non disponible",
+      description: product.description ?? "Description non disponible",
+      images: product.images || [],
+      image_urls: product.image_urls || [],
+      delivery_options: safeJsonParse(product.delivery_options),
+      price: parseFloat(product.price) || 0,
+      original_price: product.original_price ? parseFloat(product.original_price) : null,
+      stock: parseInt(product.stock) || 0,
+      likes: product.likes_count || 0,
+      shares: product.shares_count ?? 0,
+      isLiked: Boolean(product.isLiked),
+      comments: product.comments_count ?? 0,
+      seller: {
+        id: product.seller_id?.toString(),
+        name: product.seller_name ?? "Vendeur inconnu",
+        avatar: product.seller_avatar
+          ? (product.seller_avatar.startsWith('http')
+              ? product.seller_avatar
+              : `${req.protocol}://${req.get('host')}${product.seller_avatar}`)
+          : null
+      }
+    }));
+
+    // Réponse avec infos de pagination
+    res.json({
+      success: true,
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit),
+      count: formatted.length,
+      products: formatted
+    });
+
   } catch (error) {
     console.error('Erreur GET /products:', error.message);
     res.status(500).json({ success: false, error: 'Erreur serveur' });
