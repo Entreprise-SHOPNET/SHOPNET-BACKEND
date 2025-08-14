@@ -1,12 +1,16 @@
 
 
+
 const express = require("express");
 const router = express.Router();
 const db = require("../db"); // mysql2 pool configuré
 const haversine = require("haversine-distance");
 
-// Fonction pour formater les produits avec images
-async function formatProductsWithImages(products, req) {
+// Configuration Cloudinary
+const CLOUD_NAME = "dddr7gb6w";
+
+// Fonction pour formater les produits avec images Cloudinary
+async function formatProductsWithImages(products) {
   const productIds = products.map(p => p.id);
   if (productIds.length === 0) return [];
 
@@ -26,14 +30,19 @@ async function formatProductsWithImages(products, req) {
   // Ajouter images et image_urls dans chaque produit
   return products.map(prod => {
     const imagePaths = imageMap[prod.id] || [];
+
+    const image_urls = imagePaths.map(path => {
+      // Si c'est déjà une URL complète, on la renvoie
+      if (path.startsWith("http")) return path;
+
+      // Sinon, on construit l'URL Cloudinary
+      return `https://res.cloudinary.com/${CLOUD_NAME}/image/upload/${path}`;
+    });
+
     return {
       ...prod,
       images: imagePaths,
-      image_urls: imagePaths.map(path =>
-        path.startsWith("http")
-          ? path
-          : `${req.protocol}://${req.get("host")}${path}`
-      )
+      image_urls,
     };
   });
 }
@@ -42,25 +51,25 @@ router.get("/discover", async (req, res) => {
   try {
     const { lat, lon, userId } = req.query;
 
-    // Récent
+    // 1️⃣ Produits récents
     const [recentRaw] = await db.query(`
       SELECT * FROM products ORDER BY created_at DESC LIMIT 10
     `);
-    const recent = await formatProductsWithImages(recentRaw, req);
+    const recent = await formatProductsWithImages(recentRaw);
 
-    // Populaire
+    // 2️⃣ Produits populaires
     const [popularRaw] = await db.query(`
       SELECT * FROM products ORDER BY views DESC, sales DESC LIMIT 10
     `);
-    const popular = await formatProductsWithImages(popularRaw, req);
+    const popular = await formatProductsWithImages(popularRaw);
 
-    // Mis en avant
+    // 3️⃣ Produits mis en avant
     const [featuredRaw] = await db.query(`
       SELECT * FROM products WHERE is_featured = 1 ORDER BY updated_at DESC LIMIT 10
     `);
-    const featured = await formatProductsWithImages(featuredRaw, req);
+    const featured = await formatProductsWithImages(featuredRaw);
 
-    // Proches (si lat/lon)
+    // 4️⃣ Produits proches
     let nearby = [];
     if (lat && lon) {
       const [all] = await db.query(`
@@ -74,10 +83,10 @@ router.get("/discover", async (req, res) => {
         return distance <= 30;
       }).slice(0, 10);
 
-      nearby = await formatProductsWithImages(nearbyFiltered, req);
+      nearby = await formatProductsWithImages(nearbyFiltered);
     }
 
-    // Recommandé
+    // 5️⃣ Produits recommandés
     let recommended = [];
     if (userId) {
       const [categoriesViewed] = await db.query(`
@@ -101,11 +110,11 @@ router.get("/discover", async (req, res) => {
           LIMIT 10
         `, categories);
 
-        recommended = await formatProductsWithImages(recoRaw, req);
+        recommended = await formatProductsWithImages(recoRaw);
       }
     }
 
-    // Catégories tendances
+    // 6️⃣ Catégories tendances
     const [trendingCategories] = await db.query(`
       SELECT category, COUNT(*) AS count
       FROM products
@@ -114,7 +123,7 @@ router.get("/discover", async (req, res) => {
       LIMIT 5
     `);
 
-    // Envoi JSON final
+    // Réponse finale
     res.status(200).json({
       recent,
       popular,
