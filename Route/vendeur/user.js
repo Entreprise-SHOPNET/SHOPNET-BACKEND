@@ -1,4 +1,3 @@
-
 const express = require('express');
 const router = express.Router();
 const db = require('../../db');
@@ -7,7 +6,59 @@ const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
 
-// --- Helper : créer un dossier si absent
+// --- GET /profile : récupération du profil + statistiques
+router.get('/profile', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.userId;
+
+    const [rows] = await db.execute(
+      `SELECT   
+        u.id, u.fullName, u.email, u.phone, u.companyName, u.nif, u.address,  
+        u.profile_photo, u.cover_photo, u.description, u.role,   
+        DATE_FORMAT(u.date_inscription, '%Y-%m-%d') AS date_inscription,  
+        (SELECT COUNT(*) FROM products WHERE seller_id = u.id) AS productsCount,  
+        (SELECT COUNT(*) FROM orders WHERE vendeur_id = u.id) AS salesCount,  
+        (SELECT COUNT(*) FROM orders WHERE client_id = u.id) AS ordersCount,  
+        (SELECT IFNULL(AVG(note), 0) FROM avis WHERE vendeur_id = u.id) AS rating  
+      FROM utilisateurs u   
+      WHERE u.id = ?`,
+      [userId]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ success: false, message: 'Utilisateur non trouvé' });
+    }
+
+    res.json({ success: true, user: rows[0] });
+
+  } catch (err) {
+    console.error('Erreur dans GET /profile :', err);
+    res.status(500).json({ success: false, message: 'Erreur serveur' });
+  }
+});
+
+// --- PUT /profile : mise à jour des informations texte du profil
+router.put('/profile', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.userId;
+    const { fullName, phone, companyName, nif, address, description } = req.body;
+
+    await db.execute(
+      `UPDATE utilisateurs 
+       SET fullName = ?, phone = ?, companyName = ?, nif = ?, address = ?, description = ? 
+       WHERE id = ?`,
+      [fullName, phone, companyName, nif, address, description, userId]
+    );
+
+    res.json({ success: true, message: 'Profil mis à jour avec succès' });
+
+  } catch (err) {
+    console.error('Erreur PUT /profile :', err);
+    res.status(500).json({ success: false, message: 'Erreur lors de la mise à jour' });
+  }
+});
+
+// --- Configuration Multer avec logs d'erreur et vérification des dossiers
 function ensureDirExists(dir) {
   if (!fs.existsSync(dir)) {
     fs.mkdirSync(dir, { recursive: true });
@@ -15,7 +66,7 @@ function ensureDirExists(dir) {
   }
 }
 
-// --- Config Multer pour profil
+// Storage profile
 const profileStorage = multer.diskStorage({
   destination: (req, file, cb) => {
     const dir = 'uploads/profile';
@@ -24,11 +75,12 @@ const profileStorage = multer.diskStorage({
   },
   filename: (req, file, cb) => {
     const ext = path.extname(file.originalname);
-    cb(null, `profile_${Date.now()}${ext}`);
+    const filename = `profile_${Date.now()}${ext}`;
+    cb(null, filename);
   }
 });
 
-// --- Config Multer pour cover
+// Storage cover
 const coverStorage = multer.diskStorage({
   destination: (req, file, cb) => {
     const dir = 'uploads/cover';
@@ -37,16 +89,17 @@ const coverStorage = multer.diskStorage({
   },
   filename: (req, file, cb) => {
     const ext = path.extname(file.originalname);
-    cb(null, `cover_${Date.now()}${ext}`);
+    const filename = `cover_${Date.now()}${ext}`;
+    cb(null, filename);
   }
 });
 
-// --- Filtrage fichiers images
+// File filter Multer
 function imageFileFilter(req, file, cb) {
   const ext = path.extname(file.originalname).toLowerCase();
   const allowedExt = ['.jpg', '.jpeg', '.png', '.webp'];
   if (!allowedExt.includes(ext)) {
-    return cb(new Error('Seuls JPG, PNG et WEBP sont autorisés'));
+    return cb(new Error('Seuls les formats JPG, PNG et WEBP sont autorisés'));
   }
   cb(null, true);
 }
@@ -63,7 +116,7 @@ const uploadCover = multer({
   limits: { fileSize: 5 * 1024 * 1024 }
 });
 
-// --- Middleware erreurs Multer
+// Middleware pour gérer erreurs multer
 function multerErrorHandler(err, req, res, next) {
   if (err instanceof multer.MulterError) {
     console.error('Erreur Multer:', err);
@@ -75,28 +128,7 @@ function multerErrorHandler(err, req, res, next) {
   next();
 }
 
-// --- GET /profile : récupération des infos utilisateur
-router.get('/profile', authMiddleware, async (req, res) => {
-  try {
-    const userId = req.userId;
-
-    const [rows] = await db.execute(
-      'SELECT id, nom, email, profile_photo, cover_photo FROM utilisateurs WHERE id = ?',
-      [userId]
-    );
-
-    if (rows.length === 0) {
-      return res.status(404).json({ success: false, message: 'Utilisateur introuvable' });
-    }
-
-    res.json({ success: true, user: rows[0] });
-  } catch (err) {
-    console.error('Erreur GET /profile :', err);
-    res.status(500).json({ success: false, message: 'Erreur serveur' });
-  }
-});
-
-// --- PUT /profile/photo : mise à jour photo de profil
+// --- PUT /profile/photo
 router.put(
   '/profile/photo',
   authMiddleware,
@@ -106,8 +138,11 @@ router.put(
       const userId = req.userId;
 
       if (!req.file) {
+        console.error('Aucun fichier reçu dans /profile/photo');
         return res.status(400).json({ success: false, message: 'Aucun fichier reçu' });
       }
+
+      console.log('Fichier reçu /profile/photo:', req.file);
 
       const profilePhotoUrl = `https://shopnet-backend.onrender.com/uploads/profile/${req.file.filename}`;
 
@@ -128,7 +163,7 @@ router.put(
   }
 );
 
-// --- PUT /cover/photo : mise à jour photo de couverture
+// --- PUT /cover/photo
 router.put(
   '/cover/photo',
   authMiddleware,
@@ -138,8 +173,11 @@ router.put(
       const userId = req.userId;
 
       if (!req.file) {
+        console.error('Aucun fichier reçu dans /cover/photo');
         return res.status(400).json({ success: false, message: 'Aucun fichier reçu' });
       }
+
+      console.log('Fichier reçu /cover/photo:', req.file);
 
       const coverPhotoUrl = `https://shopnet-backend.onrender.com/uploads/cover/${req.file.filename}`;
 
@@ -160,7 +198,6 @@ router.put(
   }
 );
 
-// --- Middleware d’erreur Multer
 router.use(multerErrorHandler);
 
 module.exports = router;
