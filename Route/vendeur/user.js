@@ -9,53 +9,71 @@ const path = require('path');
 const fs = require('fs');
 
 // --- GET /profile : récupération du profil + statistiques
-router.get('/profile', authMiddleware, async (req, res) => {
-  try {
-    const userId = req.userId;
+// --- PUT /profile/photo : mise à jour photo de profil
+router.put(
+  '/profile/photo',
+  authMiddleware,
+  uploadProfile.single('profile_photo'),
+  async (req, res) => {
+    try {
+      const userId = req.userId;
 
-    const [rows] = await db.execute(
-      `SELECT 
-        u.id, u.fullName, u.email, u.phone, u.companyName, u.nif, u.address,
-        u.profile_photo, u.cover_photo, u.description, u.role, 
-        DATE_FORMAT(u.date_inscription, '%Y-%m-%d') AS date_inscription,
-        (SELECT COUNT(*) FROM products WHERE seller_id = u.id) AS productsCount,
-        (SELECT COUNT(*) FROM orders WHERE vendeur_id = u.id) AS salesCount,
-        (SELECT COUNT(*) FROM orders WHERE client_id = u.id) AS ordersCount,
-        (SELECT IFNULL(AVG(note), 0) FROM avis WHERE vendeur_id = u.id) AS rating
-       FROM utilisateurs u 
-       WHERE u.id = ?`,
-      [userId]
-    );
+      if (!req.file) {
+        return res.status(400).json({ success: false, message: 'Aucun fichier reçu' });
+      }
 
-    if (rows.length === 0) {
-      return res.status(404).json({ success: false, message: 'Utilisateur non trouvé' });
+      // 🔥 Utiliser ton domaine Render
+      const profilePhotoUrl = `https://shopnet-backend.onrender.com/uploads/profile/${req.file.filename}`;
+
+      await db.execute(
+        'UPDATE utilisateurs SET profile_photo = ? WHERE id = ?',
+        [profilePhotoUrl, userId]
+      );
+
+      res.json({
+        success: true,
+        message: 'Photo de profil mise à jour',
+        profile_photo: profilePhotoUrl,
+      });
+    } catch (err) {
+      console.error('Erreur PUT /profile/photo :', err);
+      res.status(500).json({ success: false, message: 'Erreur serveur' });
     }
-
-    res.json({ success: true, user: rows[0] });
-  } catch (err) {
-    console.error('Erreur dans GET /profile :', err);
-    res.status(500).json({ success: false, message: 'Erreur serveur' });
   }
-});
+);
 
-// --- PUT /profile : mise à jour des informations texte du profil
-router.put('/profile', authMiddleware, async (req, res) => {
-  try {
-    const userId = req.userId;
-    const { fullName, phone, companyName, nif, address, description } = req.body;
+// --- PUT /cover/photo : mise à jour photo de couverture
+router.put(
+  '/cover/photo',
+  authMiddleware,
+  uploadCover.single('cover_photo'),
+  async (req, res) => {
+    try {
+      const userId = req.userId;
 
-    await db.execute(
-      `UPDATE utilisateurs SET fullName = ?, phone = ?, companyName = ?, nif = ?, address = ?, description = ? WHERE id = ?`,
-      [fullName, phone, companyName, nif, address, description, userId]
-    );
+      if (!req.file) {
+        return res.status(400).json({ success: false, message: 'Aucun fichier reçu' });
+      }
 
-    res.json({ success: true, message: 'Profil mis à jour avec succès' });
-  } catch (err) {
-    console.error('Erreur PUT /profile :', err);
-    res.status(500).json({ success: false, message: 'Erreur lors de la mise à jour' });
+      // 🔥 Utiliser ton domaine Render
+      const coverPhotoUrl = `https://shopnet-backend.onrender.com/uploads/cover/${req.file.filename}`;
+
+      await db.execute(
+        'UPDATE utilisateurs SET cover_photo = ? WHERE id = ?',
+        [coverPhotoUrl, userId]
+      );
+
+      res.json({
+        success: true,
+        message: 'Photo de couverture mise à jour',
+        cover_photo: coverPhotoUrl,
+      });
+    } catch (err) {
+      console.error('Erreur PUT /cover/photo :', err);
+      res.status(500).json({ success: false, message: 'Erreur serveur' });
+    }
   }
-});
-
+);
 // --- Configuration Multer avec logs d'erreur et vérification des dossiers
 
 // Helper pour créer dossier si absent
