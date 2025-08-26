@@ -144,17 +144,18 @@ router.put(
 
       console.log('Fichier reçu /profile/photo:', req.file);
 
-      const profilePhotoUrl = `https://shopnet-backend.onrender.com/uploads/profile/${req.file.filename}`;
+      // 🔹 Chemin relatif uniquement
+      const profilePhotoPath = `/uploads/profile/${req.file.filename}`;
 
       await db.execute(
         'UPDATE utilisateurs SET profile_photo = ? WHERE id = ?',
-        [profilePhotoUrl, userId]
+        [profilePhotoPath, userId]
       );
 
       res.json({
         success: true,
         message: 'Photo de profil mise à jour',
-        profile_photo: profilePhotoUrl
+        profile_photo: profilePhotoPath
       });
     } catch (err) {
       console.error('Erreur PUT /profile/photo :', err);
@@ -179,17 +180,18 @@ router.put(
 
       console.log('Fichier reçu /cover/photo:', req.file);
 
-      const coverPhotoUrl = `https://shopnet-backend.onrender.com/uploads/cover/${req.file.filename}`;
+      // 🔹 Chemin relatif uniquement
+      const coverPhotoPath = `/uploads/cover/${req.file.filename}`;
 
       await db.execute(
         'UPDATE utilisateurs SET cover_photo = ? WHERE id = ?',
-        [coverPhotoUrl, userId]
+        [coverPhotoPath, userId]
       );
 
       res.json({
         success: true,
         message: 'Photo de couverture mise à jour',
-        cover_photo: coverPhotoUrl
+        cover_photo: coverPhotoPath
       });
     } catch (err) {
       console.error('Erreur PUT /cover/photo :', err);
