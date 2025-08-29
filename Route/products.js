@@ -1,5 +1,4 @@
 
-
 const express = require('express');
 const multer = require('multer');
 const path = require('path');
@@ -57,9 +56,13 @@ const safeJsonParse = (str) => {
   }
 };
 
-// ----------------------------
-// GET /products — Liste complète (inchangé)
-// ----------------------------
+// Fonction pour normaliser les catégories (supprime les émojis et caractères spéciaux)
+const normaliserCategorie = (categorie) => {
+  return categorie
+    .replace(/[^a-zA-Z\u00C0-\u017F]/g, '') // Garde les lettres et accents
+    .toLowerCase();
+};
+
 // ----------------------------
 // GET /products — Liste avec pagination
 // ----------------------------
@@ -67,12 +70,23 @@ router.get('/', authMiddleware, async (req, res) => {
   try {
     const userId = req.userId;
 
-    // Pagination: page par défaut = 1, limite par défaut = 50
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 50;
-    const offset = (page - 1) * limit;
+    // Récupération des paramètres de pagination
+    const limit = parseInt(req.query.limit) || 10;
+    const offset = parseInt(req.query.offset) || 0;
+    const category = req.query.category ? normaliserCategorie(req.query.category) : null;
 
-    // Requête principale avec OFFSET/LIMIT
+    // Construction de la clause WHERE
+    let whereClause = '';
+    let queryParams = [userId];
+    let countParams = [];
+
+    if (category && category !== 'all') {
+      whereClause = ' WHERE p.category = ?';
+      queryParams.push(category);
+      countParams.push(category);
+    }
+
+    // Requête pour récupérer les produits
     const [products] = await db.query(`
       SELECT 
         p.*,
@@ -89,12 +103,15 @@ router.get('/', authMiddleware, async (req, res) => {
         ) AS isLiked
       FROM products p
       LEFT JOIN utilisateurs u ON p.seller_id = u.id
+      ${whereClause}
       ORDER BY p.created_at DESC
       LIMIT ? OFFSET ?
-    `, [userId, limit, offset]);
+    `, [...queryParams, limit, offset]);
 
-    // Compter le total pour pagination
-    const [[{ total }]] = await db.query(`SELECT COUNT(*) AS total FROM products`);
+    // Requête pour compter le total des produits
+    const countQuery = `SELECT COUNT(*) AS total FROM products p ${whereClause}`;
+    const [[countResult]] = await db.query(countQuery, countParams);
+    const total = countResult.total || 0;
 
     // Formatter le résultat
     const formatted = products.map(product => ({
@@ -125,12 +142,13 @@ router.get('/', authMiddleware, async (req, res) => {
     // Réponse avec infos de pagination
     res.json({
       success: true,
-      page,
-      limit,
-      total,
-      totalPages: Math.ceil(total / limit),
-      count: formatted.length,
-      products: formatted
+      products: formatted,
+      pagination: {
+        limit,
+        offset,
+        total,
+        hasMore: offset + limit < total
+      }
     });
 
   } catch (error) {
@@ -140,7 +158,7 @@ router.get('/', authMiddleware, async (req, res) => {
 });
 
 // ----------------------------
-// GET /products/:id — Détail d’un produit (inchangé)
+// GET /products/:id — Détail d'un produit
 // ----------------------------
 router.get('/:id', authMiddleware, async (req, res) => {
   try {
@@ -300,4 +318,3 @@ router.post('/', authMiddleware, (req, res) => {
 });
 
 module.exports = router;
-
