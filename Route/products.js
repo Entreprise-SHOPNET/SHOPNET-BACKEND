@@ -66,11 +66,14 @@ const normaliserCategorie = (categorie) => {
 // ----------------------------
 // GET /products — Liste avec pagination
 // ----------------------------
+// ----------------------------
+// GET /products — Liste avec pagination
+// ----------------------------
 router.get('/', authMiddleware, async (req, res) => {
   try {
     const userId = req.userId;
 
-    // Récupération des paramètres de pagination
+    // Récupération des paramètres
     const limit = parseInt(req.query.limit) || 10;
     const offset = parseInt(req.query.offset) || 0;
     const category = req.query.category ? normaliserCategorie(req.query.category) : null;
@@ -108,38 +111,40 @@ router.get('/', authMiddleware, async (req, res) => {
       LIMIT ? OFFSET ?
     `, [...queryParams, limit, offset]);
 
-    // Requête pour compter le total des produits
+    // Requête pour compter le total
     const countQuery = `SELECT COUNT(*) AS total FROM products p ${whereClause}`;
     const [[countResult]] = await db.query(countQuery, countParams);
     const total = countResult.total || 0;
 
-    // Formatter le résultat
+    // Formatter les produits
     const formatted = products.map(product => ({
-      ...product,
-      title: product.title ?? "Titre non disponible",
-      description: product.description ?? "Description non disponible",
-      images: product.images || [],
-      image_urls: product.image_urls || [],
-      delivery_options: safeJsonParse(product.delivery_options),
+      id: product.id.toString(),
+      title: product.title || 'Titre non disponible',
+      description: product.description || 'Description non disponible',
       price: parseFloat(product.price) || 0,
-      original_price: product.original_price ? parseFloat(product.original_price) : null,
-      stock: parseInt(product.stock) || 0,
-      likes: product.likes_count || 0,
-      shares: product.shares_count ?? 0,
-      isLiked: Boolean(product.isLiked),
-      comments: product.comments_count ?? 0,
+      discount: product.original_price && product.price
+        ? Math.round((1 - (product.price / product.original_price)) * 100)
+        : 0,
+      images: product.image_urls || [],
+      image_urls: product.image_urls || [],
       seller: {
-        id: product.seller_id?.toString(),
-        name: product.seller_name ?? "Vendeur inconnu",
+        id: product.seller_id?.toString() || "1",
+        name: product.seller_name || "Vendeur inconnu",
         avatar: product.seller_avatar
           ? (product.seller_avatar.startsWith('http')
-              ? product.seller_avatar
+              ? product.seller.avatar
               : `${req.protocol}://${req.get('host')}${product.seller_avatar}`)
-          : null
-      }
+          : 'https://via.placeholder.com/40',
+      },
+      rating: product.rating || 0,
+      comments: product.comments_count || 0,
+      likes: product.likes_count || 0,
+      location: product.location || 'Lubumbashi',
+      isLiked: Boolean(product.isLiked),
+      shares: product.shares_count || 0
     }));
 
-    // Réponse avec infos de pagination
+    // Réponse
     res.json({
       success: true,
       products: formatted,
@@ -156,7 +161,6 @@ router.get('/', authMiddleware, async (req, res) => {
     res.status(500).json({ success: false, error: 'Erreur serveur' });
   }
 });
-
 // ----------------------------
 // GET /products/:id — Détail d'un produit
 // ----------------------------
