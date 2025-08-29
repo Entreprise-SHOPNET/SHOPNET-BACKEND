@@ -1,12 +1,12 @@
 const express = require('express');
 const multer = require('multer');
-const path = require('path');
 const router = express.Router();
 const db = require('../db');
 const authMiddleware = require('../middlewares/authMiddleware');
 const cors = require('cors');
 const cloudinary = require('cloudinary').v2;
 
+// CORS
 router.use(cors({
   origin: ['http://localhost', 'http://100.64.134.89', 'https://shopnet-backend.onrender.com'],
   methods: ['GET', 'POST', 'PUT', 'DELETE']
@@ -16,70 +16,52 @@ router.use(cors({
 cloudinary.config({
   cloud_name: process.env.CLOUD_NAME,
   api_key: process.env.API_KEY,
-  api_secret: process.env.API_SECRET,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
 });
 
-// Multer en mémoire (pas de fichier local)
+// Multer en mémoire
 const storage = multer.memoryStorage();
 const fileFilter = (req, file, cb) => {
   const validTypes = ['image/jpeg', 'image/png', 'image/webp'];
   if (validTypes.includes(file.mimetype)) cb(null, true);
   else cb(new Error('Seules les images JPEG/PNG/WEBP sont acceptées'), false);
 };
-const upload = multer({
-  storage,
-  limits: { fileSize: 15 * 1024 * 1024 },
-  fileFilter
-}).array('images', 5);
+const upload = multer({ storage, limits: { fileSize: 15 * 1024 * 1024 }, fileFilter }).array('images', 5);
 
-// Fonction utilitaire : upload buffer vers Cloudinary en Promise
+// Upload vers Cloudinary
 function uploadToCloudinary(buffer, options = {}) {
   return new Promise((resolve, reject) => {
-    const stream = cloudinary.uploader.upload_stream(
-      options,
-      (error, result) => {
-        if (error) reject(error);
-        else resolve(result);
-      }
-    );
+    const stream = cloudinary.uploader.upload_stream(options, (err, result) => {
+      if (err) reject(err);
+      else resolve(result);
+    });
     stream.end(buffer);
   });
 }
 
-// Fonctions utilitaires
-const safeJsonParse = (str) => {
-  try {
-    return str ? JSON.parse(str) : [];
-  } catch {
-    return [];
-  }
-};
+// Parse JSON sécurisé
+const safeJsonParse = str => { try { return str ? JSON.parse(str) : []; } catch { return []; } };
 
 // ----------------------------
-// GET /products — Liste avec pagination (offset/limit compatible FRONT)
+// GET /products — Liste avec pagination + filtre optionnel
 // ----------------------------
 router.get('/', authMiddleware, async (req, res) => {
   try {
     const userId = req.userId;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 50;
+    const offset = (page - 1) * limit;
 
-    // FRONT envoie: limit & offset (PAS page)
-    const limit = Math.min(parseInt(req.query.limit) || 5, 100); // borne max de sécurité
-    const offset = Math.max(parseInt(req.query.offset) || 0, 0);
+    const categoryFilter = req.query.category && req.query.category !== 'all' ? req.query.category : null;
+    let whereClause = '';
+    let params = [userId];
 
-    // Filtre optionnel par catégorie (le FRONT envoie un label nettoyé)
-    const rawCategory = (req.query.category || '').trim();
-    const category = rawCategory.toLowerCase();
-
-    // Construction dynamique du WHERE
-    let where = 'WHERE 1=1';
-    const whereParams = [];
-    if (category) {
-      where += ' AND LOWER(p.category) = ?';
-      whereParams.push(category);
+    if (categoryFilter) {
+      whereClause = 'WHERE LOWER(p.category) LIKE LOWER(?)';
+      params.push(`%${categoryFilter}%`);
     }
 
-    // Requête principale
-    const sql = `
+    const [products] = await db.query(`
       SELECT 
         p.*,
         (SELECT COUNT(*) FROM product_comments pc WHERE pc.product_id = p.id) AS comments_count,
@@ -95,57 +77,54 @@ router.get('/', authMiddleware, async (req, res) => {
         ) AS isLiked
       FROM products p
       LEFT JOIN utilisateurs u ON p.seller_id = u.id
-      ${where}
+      ${whereClause}
       ORDER BY p.created_at DESC
       LIMIT ? OFFSET ?
-    `;
+    `, [...params, limit, offset]);
 
-    const params = [userId, ...whereParams, limit, offset];
-    const [products] = await db.query(sql, params);
+    let totalQuery = 'SELECT COUNT(*) AS total FROM products p';
+    let totalParams = [];
+    if (categoryFilter) {
+      totalQuery += ' WHERE LOWER(p.category) LIKE LOWER(?)';
+      totalParams.push(`%${categoryFilter}%`);
+    }
+    const [[{ total }]] = await db.query(totalQuery, totalParams);
 
-    // Total pour info (utile si un jour tu veux des pages serveur)
-    const countSql = `SELECT COUNT(*) AS total FROM products p ${where}`;
-    const [countRows] = await db.query(countSql, whereParams);
-    const total = countRows?.[0]?.total || 0;
-
-    // Formatter
-    const formatted = products.map((product) => ({
-      id: product.id,
-      title: product.title ?? 'Titre non disponible',
-      description: product.description ?? 'Description non disponible',
+    const formatted = products.map(product => ({
+      ...product,
+      title: product.title ?? "Titre non disponible",
+      description: product.description ?? "Description non disponible",
+      images: product.images || [],
+      image_urls: product.image_urls || [],
+      delivery_options: safeJsonParse(product.delivery_options),
       price: parseFloat(product.price) || 0,
       original_price: product.original_price ? parseFloat(product.original_price) : null,
-      category: product.category,
-      condition: product.condition,
       stock: parseInt(product.stock) || 0,
-      location: product.location,
-      created_at: product.created_at,
-      updated_at: product.updated_at,
       likes: product.likes_count || 0,
       shares: product.shares_count ?? 0,
       isLiked: Boolean(product.isLiked),
       comments: product.comments_count ?? 0,
-      images: product.images || [],
-      image_urls: product.image_urls || [],
       seller: {
         id: product.seller_id?.toString(),
-        name: product.seller_name ?? 'Vendeur inconnu',
+        name: product.seller_name ?? "Vendeur inconnu",
         avatar: product.seller_avatar
           ? (product.seller_avatar.startsWith('http')
               ? product.seller_avatar
               : `${req.protocol}://${req.get('host')}${product.seller_avatar}`)
-          : null,
-      },
+          : null
+      }
     }));
 
     res.json({
       success: true,
+      page,
       limit,
-      offset,
       total,
+      totalPages: Math.ceil(total / limit),
       count: formatted.length,
-      products: formatted,
+      products: formatted
     });
+
   } catch (error) {
     console.error('Erreur GET /products:', error.message);
     res.status(500).json({ success: false, error: 'Erreur serveur' });
@@ -182,9 +161,7 @@ router.get('/:id', authMiddleware, async (req, res) => {
       LIMIT 1
     `, [userId, productId]);
 
-    if (!rows || rows.length === 0) {
-      return res.status(404).json({ success: false, error: 'Produit introuvable' });
-    }
+    if (!rows || rows.length === 0) return res.status(404).json({ success: false, error: 'Produit introuvable' });
 
     const product = rows[0];
     const formatted = {
@@ -232,13 +209,10 @@ router.post('/', authMiddleware, (req, res) => {
   upload(req, res, async (err) => {
     let connection;
     try {
-      if (err) {
-        return res.status(400).json({ success: false, error: err.message });
-      }
+      if (err) return res.status(400).json({ success: false, error: err.message });
 
       const { title, price, original_price, category, condition, stock, location } = req.body;
       if (!title || title.trim().length < 3) throw new Error('Titre trop court');
-
       const parsedPrice = parseFloat(price);
       if (isNaN(parsedPrice)) throw new Error('Prix invalide');
 
@@ -263,130 +237,38 @@ router.post('/', authMiddleware, (req, res) => {
         views_count: 0
       };
 
-      const [productResult] = await connection.query(
-        'INSERT INTO products SET ?', [productData]
-      );
+      const [productResult] = await connection.query('INSERT INTO products SET ?', [productData]);
       const productId = productResult.insertId;
 
       let uploadedImages = [];
       if (req.files?.length > 0) {
         for (const file of req.files) {
-          // Upload buffer vers Cloudinary
           const uploadResult = await uploadToCloudinary(file.buffer, {
             folder: 'shopnet',
             resource_type: 'image',
             public_id: `product_${Date.now()}_${Math.floor(Math.random() * 10000)}`
           });
 
-          // Stocker en base (public_id = image_path, url = absolute_url)
           await connection.query(
             'INSERT INTO product_images (product_id, image_path, absolute_url) VALUES (?, ?, ?)',
             [productId, uploadResult.public_id, uploadResult.secure_url]
           );
 
-          uploadedImages.push({
-            public_id: uploadResult.public_id,
-            url: uploadResult.secure_url,
-          });
+          uploadedImages.push({ public_id: uploadResult.public_id, url: uploadResult.secure_url });
         }
       }
 
       await connection.commit();
       connection.release();
 
-      res.status(201).json({
-        success: true,
-        productId,
-        images: uploadedImages,
-        message: 'Produit créé avec succès'
-      });
+      res.status(201).json({ success: true, productId, images: uploadedImages, message: 'Produit créé avec succès' });
 
     } catch (error) {
-      if (connection) {
-        await connection.rollback();
-        connection.release();
-      }
+      if (connection) { await connection.rollback(); connection.release(); }
       console.error('Erreur création produit:', error.message);
       res.status(400).json({ success: false, error: error.message });
     }
   });
-});
-
-// ----------------------------
-// POST /products/:id/like — Toggle like (compatible FRONT)
-// ----------------------------
-router.post('/:id/like', authMiddleware, async (req, res) => {
-  const productId = req.params.id;
-  const userId = req.userId;
-  let connection;
-  try {
-    connection = await db.getConnection();
-    await connection.beginTransaction();
-
-    const [existsRows] = await connection.query(
-      'SELECT 1 FROM product_likes WHERE product_id = ? AND user_id = ? LIMIT 1',
-      [productId, userId]
-    );
-
-    let liked;
-    if (existsRows.length) {
-      // Unlike
-      await connection.query(
-        'DELETE FROM product_likes WHERE product_id = ? AND user_id = ?',
-        [productId, userId]
-      );
-      await connection.query(
-        'UPDATE products SET likes_count = GREATEST(likes_count - 1, 0) WHERE id = ?',
-        [productId]
-      );
-      liked = false;
-    } else {
-      // Like
-      await connection.query(
-        'INSERT INTO product_likes (product_id, user_id) VALUES (?, ?)',
-        [productId, userId]
-      );
-      await connection.query(
-        'UPDATE products SET likes_count = likes_count + 1 WHERE id = ?',
-        [productId]
-      );
-      liked = true;
-    }
-
-    const [[{ likes }]] = await connection.query(
-      'SELECT likes_count AS likes FROM products WHERE id = ?',
-      [productId]
-    );
-
-    await connection.commit();
-    connection.release();
-
-    res.json({ success: true, liked, likes });
-  } catch (error) {
-    if (connection) {
-      await connection.rollback();
-      connection.release();
-    }
-    console.error('Erreur LIKE produit:', error.message);
-    res.status(500).json({ success: false, error: 'Erreur serveur' });
-  }
-});
-
-// ----------------------------
-// POST /products/:id/share — Incrément du partage (compatible FRONT)
-// ----------------------------
-router.post('/:id/share', authMiddleware, async (req, res) => {
-  try {
-    const productId = req.params.id;
-    await db.query('UPDATE products SET shares_count = shares_count + 1 WHERE id = ?', [productId]);
-
-    const [[product]] = await db.query('SELECT id, shares_count AS shares FROM products WHERE id = ?', [productId]);
-
-    res.json({ success: true, product });
-  } catch (error) {
-    console.error('Erreur SHARE produit:', error.message);
-    res.status(500).json({ success: false, error: 'Erreur serveur' });
-  }
 });
 
 module.exports = router;
