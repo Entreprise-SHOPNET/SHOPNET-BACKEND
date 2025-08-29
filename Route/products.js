@@ -1,5 +1,3 @@
-
-
 const express = require('express');
 const multer = require('multer');
 const path = require('path');
@@ -10,7 +8,7 @@ const cors = require('cors');
 const cloudinary = require('cloudinary').v2;
 
 router.use(cors({
-  origin: ['http://localhost', 'http://100.64.134.89'],
+  origin: ['http://localhost', 'http://100.64.134.89', 'https://shopnet-backend.onrender.com'],
   methods: ['GET', 'POST', 'PUT', 'DELETE']
 }));
 
@@ -48,7 +46,7 @@ function uploadToCloudinary(buffer, options = {}) {
   });
 }
 
-// Fonctions utilitaires existantes pour GET routes (reste inchangé)
+// Fonctions utilitaires
 const safeJsonParse = (str) => {
   try {
     return str ? JSON.parse(str) : [];
@@ -58,22 +56,30 @@ const safeJsonParse = (str) => {
 };
 
 // ----------------------------
-// GET /products — Liste complète (inchangé)
-// ----------------------------
-// ----------------------------
-// GET /products — Liste avec pagination
+// GET /products — Liste avec pagination (offset/limit compatible FRONT)
 // ----------------------------
 router.get('/', authMiddleware, async (req, res) => {
   try {
     const userId = req.userId;
 
-    // Pagination: page par défaut = 1, limite par défaut = 50
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 50;
-    const offset = (page - 1) * limit;
+    // FRONT envoie: limit & offset (PAS page)
+    const limit = Math.min(parseInt(req.query.limit) || 5, 100); // borne max de sécurité
+    const offset = Math.max(parseInt(req.query.offset) || 0, 0);
 
-    // Requête principale avec OFFSET/LIMIT
-    const [products] = await db.query(`
+    // Filtre optionnel par catégorie (le FRONT envoie un label nettoyé)
+    const rawCategory = (req.query.category || '').trim();
+    const category = rawCategory.toLowerCase();
+
+    // Construction dynamique du WHERE
+    let where = 'WHERE 1=1';
+    const whereParams = [];
+    if (category) {
+      where += ' AND LOWER(p.category) = ?';
+      whereParams.push(category);
+    }
+
+    // Requête principale
+    const sql = `
       SELECT 
         p.*,
         (SELECT COUNT(*) FROM product_comments pc WHERE pc.product_id = p.id) AS comments_count,
@@ -89,50 +95,57 @@ router.get('/', authMiddleware, async (req, res) => {
         ) AS isLiked
       FROM products p
       LEFT JOIN utilisateurs u ON p.seller_id = u.id
+      ${where}
       ORDER BY p.created_at DESC
       LIMIT ? OFFSET ?
-    `, [userId, limit, offset]);
+    `;
 
-    // Compter le total pour pagination
-    const [[{ total }]] = await db.query(`SELECT COUNT(*) AS total FROM products`);
+    const params = [userId, ...whereParams, limit, offset];
+    const [products] = await db.query(sql, params);
 
-    // Formatter le résultat
-    const formatted = products.map(product => ({
-      ...product,
-      title: product.title ?? "Titre non disponible",
-      description: product.description ?? "Description non disponible",
-      images: product.images || [],
-      image_urls: product.image_urls || [],
-      delivery_options: safeJsonParse(product.delivery_options),
+    // Total pour info (utile si un jour tu veux des pages serveur)
+    const countSql = `SELECT COUNT(*) AS total FROM products p ${where}`;
+    const [countRows] = await db.query(countSql, whereParams);
+    const total = countRows?.[0]?.total || 0;
+
+    // Formatter
+    const formatted = products.map((product) => ({
+      id: product.id,
+      title: product.title ?? 'Titre non disponible',
+      description: product.description ?? 'Description non disponible',
       price: parseFloat(product.price) || 0,
       original_price: product.original_price ? parseFloat(product.original_price) : null,
+      category: product.category,
+      condition: product.condition,
       stock: parseInt(product.stock) || 0,
+      location: product.location,
+      created_at: product.created_at,
+      updated_at: product.updated_at,
       likes: product.likes_count || 0,
       shares: product.shares_count ?? 0,
       isLiked: Boolean(product.isLiked),
       comments: product.comments_count ?? 0,
+      images: product.images || [],
+      image_urls: product.image_urls || [],
       seller: {
         id: product.seller_id?.toString(),
-        name: product.seller_name ?? "Vendeur inconnu",
+        name: product.seller_name ?? 'Vendeur inconnu',
         avatar: product.seller_avatar
           ? (product.seller_avatar.startsWith('http')
               ? product.seller_avatar
               : `${req.protocol}://${req.get('host')}${product.seller_avatar}`)
-          : null
-      }
+          : null,
+      },
     }));
 
-    // Réponse avec infos de pagination
     res.json({
       success: true,
-      page,
       limit,
+      offset,
       total,
-      totalPages: Math.ceil(total / limit),
       count: formatted.length,
-      products: formatted
+      products: formatted,
     });
-
   } catch (error) {
     console.error('Erreur GET /products:', error.message);
     res.status(500).json({ success: false, error: 'Erreur serveur' });
@@ -140,7 +153,7 @@ router.get('/', authMiddleware, async (req, res) => {
 });
 
 // ----------------------------
-// GET /products/:id — Détail d’un produit (inchangé)
+// GET /products/:id — Détail d’un produit
 // ----------------------------
 router.get('/:id', authMiddleware, async (req, res) => {
   try {
@@ -299,5 +312,81 @@ router.post('/', authMiddleware, (req, res) => {
   });
 });
 
-module.exports = router;
+// ----------------------------
+// POST /products/:id/like — Toggle like (compatible FRONT)
+// ----------------------------
+router.post('/:id/like', authMiddleware, async (req, res) => {
+  const productId = req.params.id;
+  const userId = req.userId;
+  let connection;
+  try {
+    connection = await db.getConnection();
+    await connection.beginTransaction();
 
+    const [existsRows] = await connection.query(
+      'SELECT 1 FROM product_likes WHERE product_id = ? AND user_id = ? LIMIT 1',
+      [productId, userId]
+    );
+
+    let liked;
+    if (existsRows.length) {
+      // Unlike
+      await connection.query(
+        'DELETE FROM product_likes WHERE product_id = ? AND user_id = ?',
+        [productId, userId]
+      );
+      await connection.query(
+        'UPDATE products SET likes_count = GREATEST(likes_count - 1, 0) WHERE id = ?',
+        [productId]
+      );
+      liked = false;
+    } else {
+      // Like
+      await connection.query(
+        'INSERT INTO product_likes (product_id, user_id) VALUES (?, ?)',
+        [productId, userId]
+      );
+      await connection.query(
+        'UPDATE products SET likes_count = likes_count + 1 WHERE id = ?',
+        [productId]
+      );
+      liked = true;
+    }
+
+    const [[{ likes }]] = await connection.query(
+      'SELECT likes_count AS likes FROM products WHERE id = ?',
+      [productId]
+    );
+
+    await connection.commit();
+    connection.release();
+
+    res.json({ success: true, liked, likes });
+  } catch (error) {
+    if (connection) {
+      await connection.rollback();
+      connection.release();
+    }
+    console.error('Erreur LIKE produit:', error.message);
+    res.status(500).json({ success: false, error: 'Erreur serveur' });
+  }
+});
+
+// ----------------------------
+// POST /products/:id/share — Incrément du partage (compatible FRONT)
+// ----------------------------
+router.post('/:id/share', authMiddleware, async (req, res) => {
+  try {
+    const productId = req.params.id;
+    await db.query('UPDATE products SET shares_count = shares_count + 1 WHERE id = ?', [productId]);
+
+    const [[product]] = await db.query('SELECT id, shares_count AS shares FROM products WHERE id = ?', [productId]);
+
+    res.json({ success: true, product });
+  } catch (error) {
+    console.error('Erreur SHARE produit:', error.message);
+    res.status(500).json({ success: false, error: 'Erreur serveur' });
+  }
+});
+
+module.exports = router;
