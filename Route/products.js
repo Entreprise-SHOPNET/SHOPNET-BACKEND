@@ -1,4 +1,3 @@
-
 const express = require('express');
 const multer = require('multer');
 const path = require('path');
@@ -57,22 +56,34 @@ const safeJsonParse = (str) => {
 };
 
 // ----------------------------
-// GET /products — Liste complète (inchangé)
-// ----------------------------
-// ----------------------------
 // GET /products — Liste avec pagination
 // ----------------------------
 router.get('/', authMiddleware, async (req, res) => {
   try {
     const userId = req.userId;
 
-    // Pagination: page par défaut = 1, limite par défaut = 50
+    // Pagination: page par défaut = 1, limite par défaut = 5
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 50;
+    const limit = parseInt(req.query.limit) || 5;
     const offset = (page - 1) * limit;
+    const category = req.query.category || 'all';
+
+    // Construction des clauses WHERE
+    let whereClause = '';
+    let countWhereClause = '';
+    let queryParams = [userId];
+    let countParams = [];
+
+    // Filtre par catégorie
+    if (category && category !== 'all') {
+      whereClause = ' WHERE p.category = ?';
+      countWhereClause = ' WHERE category = ?';
+      queryParams.push(category);
+      countParams.push(category);
+    }
 
     // Requête principale avec OFFSET/LIMIT
-    const [products] = await db.query(`
+    const query = `
       SELECT 
         p.*,
         (SELECT COUNT(*) FROM product_comments pc WHERE pc.product_id = p.id) AS comments_count,
@@ -88,12 +99,18 @@ router.get('/', authMiddleware, async (req, res) => {
         ) AS isLiked
       FROM products p
       LEFT JOIN utilisateurs u ON p.seller_id = u.id
+      ${whereClause}
       ORDER BY p.created_at DESC
       LIMIT ? OFFSET ?
-    `, [userId, limit, offset]);
+    `;
+    
+    queryParams.push(limit, offset);
 
     // Compter le total pour pagination
-    const [[{ total }]] = await db.query(`SELECT COUNT(*) AS total FROM products`);
+    const countQuery = `SELECT COUNT(*) AS total FROM products p ${countWhereClause}`;
+    
+    const [products] = await db.query(query, queryParams);
+    const [[{ total }]] = await db.query(countQuery, countParams);
 
     // Formatter le résultat
     const formatted = products.map(product => ({
@@ -129,6 +146,7 @@ router.get('/', authMiddleware, async (req, res) => {
       total,
       totalPages: Math.ceil(total / limit),
       count: formatted.length,
+      hasNext: page < Math.ceil(total / limit),
       products: formatted
     });
 
@@ -139,7 +157,7 @@ router.get('/', authMiddleware, async (req, res) => {
 });
 
 // ----------------------------
-// GET /products/:id — Détail d’un produit (inchangé)
+// GET /products/:id — Détail d'un produit
 // ----------------------------
 router.get('/:id', authMiddleware, async (req, res) => {
   try {
@@ -298,5 +316,73 @@ router.post('/', authMiddleware, (req, res) => {
   });
 });
 
-module.exports = router;
+// ----------------------------
+// POST /products/:id/like — Like/Unlike un produit
+// ----------------------------
+router.post('/:id/like', authMiddleware, async (req, res) => {
+  try {
+    const productId = req.params.id;
+    const userId = req.userId;
 
+    // Vérifier si l'utilisateur a déjà liké ce produit
+    const [existingLikes] = await db.query(
+      'SELECT * FROM product_likes WHERE product_id = ? AND user_id = ?',
+      [productId, userId]
+    );
+
+    if (existingLikes.length > 0) {
+      // Supprimer le like
+      await db.query(
+        'DELETE FROM product_likes WHERE product_id = ? AND user_id = ?',
+        [productId, userId]
+      );
+      
+      // Décrémenter le compteur de likes
+      await db.query(
+        'UPDATE products SET likes_count = likes_count - 1 WHERE id = ?',
+        [productId]
+      );
+      
+      res.json({ success: true, liked: false });
+    } else {
+      // Ajouter le like
+      await db.query(
+        'INSERT INTO product_likes (product_id, user_id) VALUES (?, ?)',
+        [productId, userId]
+      );
+      
+      // Incrémenter le compteur de likes
+      await db.query(
+        'UPDATE products SET likes_count = likes_count + 1 WHERE id = ?',
+        [productId]
+      );
+      
+      res.json({ success: true, liked: true });
+    }
+  } catch (error) {
+    console.error('Erreur like/unlike produit:', error.message);
+    res.status(500).json({ success: false, error: 'Erreur serveur' });
+  }
+});
+
+// ----------------------------
+// POST /products/:id/share — Incrémenter le compteur de partages
+// ----------------------------
+router.post('/:id/share', authMiddleware, async (req, res) => {
+  try {
+    const productId = req.params.id;
+
+    // Incrémenter le compteur de partages
+    await db.query(
+      'UPDATE products SET shares_count = shares_count + 1 WHERE id = ?',
+      [productId]
+    );
+    
+    res.json({ success: true, message: 'Partage enregistré' });
+  } catch (error) {
+    console.error('Erreur partage produit:', error.message);
+    res.status(500).json({ success: false, error: 'Erreur serveur' });
+  }
+});
+
+module.exports = router;
