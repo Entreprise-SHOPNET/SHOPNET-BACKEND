@@ -67,11 +67,13 @@ router.get('/', authMiddleware, async (req, res) => {
     const limit = parseInt(req.query.limit) || 5; // Par défaut 5 produits
     const category = req.query.category;
 
+    console.log('Request received with params:', { offset, limit, category, userId });
+
     let whereClause = '';
     let queryParams = [userId];
     let countParams = [];
 
-    if (category && category !== 'undefined') {
+    if (category && category !== 'undefined' && category !== 'all') {
       whereClause = ' WHERE p.category = ?';
       queryParams.push(category);
       countParams.push(category);
@@ -100,11 +102,20 @@ router.get('/', authMiddleware, async (req, res) => {
     `;
     queryParams.push(limit, offset);
 
+    console.log('Executing query:', query);
+    console.log('With params:', queryParams);
+
     const [products] = await db.query(query, queryParams);
 
     // Compter le total pour pagination
     const countQuery = `SELECT COUNT(*) AS total FROM products p ${whereClause}`;
+    console.log('Count query:', countQuery);
+    console.log('Count params:', countParams);
+    
     const [[{ total }]] = await db.query(countQuery, countParams);
+
+    console.log('Products found:', products.length);
+    console.log('Total products:', total);
 
     // Formatter le résultat
     const formatted = products.map(product => ({
