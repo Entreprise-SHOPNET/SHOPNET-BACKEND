@@ -1,5 +1,3 @@
-
-
 const express = require('express');
 const multer = require('multer');
 const path = require('path');
@@ -10,7 +8,7 @@ const cors = require('cors');
 const cloudinary = require('cloudinary').v2;
 
 router.use(cors({
-  origin: ['http://localhost', 'http://100.64.134.89'],
+  origin: ['http://localhost', 'http://100.64.134.89', 'https://shopnet-backend.onrender.com'],
   methods: ['GET', 'POST', 'PUT', 'DELETE']
 }));
 
@@ -48,7 +46,7 @@ function uploadToCloudinary(buffer, options = {}) {
   });
 }
 
-// Fonctions utilitaires existantes pour GET routes (reste inchangé)
+// Fonctions utilitaires
 const safeJsonParse = (str) => {
   try {
     return str ? JSON.parse(str) : [];
@@ -57,9 +55,14 @@ const safeJsonParse = (str) => {
   }
 };
 
-// ----------------------------
-// GET /products — Liste complète (inchangé)
-// ----------------------------
+// Fonction pour normaliser les catégories
+const normaliserCategorie = (categorie) => {
+  if (!categorie) return null;
+  return categorie
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase();
+};
+
 // ----------------------------
 // GET /products — Liste avec pagination
 // ----------------------------
@@ -67,12 +70,23 @@ router.get('/', authMiddleware, async (req, res) => {
   try {
     const userId = req.userId;
 
-    // Pagination: page par défaut = 1, limite par défaut = 50
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 50;
-    const offset = (page - 1) * limit;
+    // Récupération des paramètres
+    const limit = parseInt(req.query.limit) || 10;
+    const offset = parseInt(req.query.offset) || 0;
+    const category = req.query.category ? normaliserCategorie(req.query.category) : null;
 
-    // Requête principale avec OFFSET/LIMIT
+    // Construction de la clause WHERE
+    let whereClause = '';
+    let queryParams = [userId];
+    let countParams = [];
+
+    if (category && category !== 'all') {
+      whereClause = ' WHERE p.category = ?';
+      queryParams.push(category);
+      countParams.push(category);
+    }
+
+    // Requête pour récupérer les produits
     const [products] = await db.query(`
       SELECT 
         p.*,
@@ -89,58 +103,68 @@ router.get('/', authMiddleware, async (req, res) => {
         ) AS isLiked
       FROM products p
       LEFT JOIN utilisateurs u ON p.seller_id = u.id
+      ${whereClause}
       ORDER BY p.created_at DESC
       LIMIT ? OFFSET ?
-    `, [userId, limit, offset]);
+    `, [...queryParams, limit, offset]);
 
-    // Compter le total pour pagination
-    const [[{ total }]] = await db.query(`SELECT COUNT(*) AS total FROM products`);
+    // Requête pour compter le total
+    const countQuery = `SELECT COUNT(*) AS total FROM products p ${whereClause}`;
+    const [[countResult]] = await db.query(countQuery, countParams);
+    const total = countResult.total || 0;
 
-    // Formatter le résultat
-    const formatted = products.map(product => ({
-      ...product,
-      title: product.title ?? "Titre non disponible",
-      description: product.description ?? "Description non disponible",
-      images: product.images || [],
-      image_urls: product.image_urls || [],
-      delivery_options: safeJsonParse(product.delivery_options),
+    // Formatter les produits
+    const formattedProducts = products.map(product => ({
+      id: product.id.toString(),
+      title: product.title || 'Titre non disponible',
+      description: product.description || 'Description non disponible',
       price: parseFloat(product.price) || 0,
-      original_price: product.original_price ? parseFloat(product.original_price) : null,
-      stock: parseInt(product.stock) || 0,
-      likes: product.likes_count || 0,
-      shares: product.shares_count ?? 0,
-      isLiked: Boolean(product.isLiked),
-      comments: product.comments_count ?? 0,
+      discount: product.original_price && product.price
+        ? Math.round((1 - (product.price / product.original_price)) * 100)
+        : 0,
+      images: product.image_urls || [],
+      image_urls: product.image_urls || [],
       seller: {
-        id: product.seller_id?.toString(),
-        name: product.seller_name ?? "Vendeur inconnu",
+        id: product.seller_id?.toString() || "1",
+        name: product.seller_name || "Vendeur inconnu",
         avatar: product.seller_avatar
           ? (product.seller_avatar.startsWith('http')
               ? product.seller_avatar
               : `${req.protocol}://${req.get('host')}${product.seller_avatar}`)
-          : null
-      }
+          : 'https://via.placeholder.com/40',
+      },
+      rating: product.rating || 0,
+      comments: product.comments_count || 0,
+      likes: product.likes_count || 0,
+      location: product.location || 'Lubumbashi',
+      isLiked: Boolean(product.isLiked),
+      shares: product.shares_count || 0
     }));
 
-    // Réponse avec infos de pagination
+    // Réponse
     res.json({
       success: true,
-      page,
-      limit,
-      total,
-      totalPages: Math.ceil(total / limit),
-      count: formatted.length,
-      products: formatted
+      products: formattedProducts,
+      pagination: {
+        limit,
+        offset,
+        total,
+        hasMore: offset + limit < total
+      }
     });
 
   } catch (error) {
     console.error('Erreur GET /products:', error.message);
-    res.status(500).json({ success: false, error: 'Erreur serveur' });
+    res.status(500).json({ 
+      success: false, 
+      error: 'Erreur serveur',
+      message: error.message 
+    });
   }
 });
 
 // ----------------------------
-// GET /products/:id — Détail d’un produit (inchangé)
+// GET /products/:id — Détail d'un produit
 // ----------------------------
 router.get('/:id', authMiddleware, async (req, res) => {
   try {
@@ -223,7 +247,7 @@ router.post('/', authMiddleware, (req, res) => {
         return res.status(400).json({ success: false, error: err.message });
       }
 
-      const { title, price, original_price, category, condition, stock, location } = req.body;
+      const { title, price, original_price, category, condition, stock, location, description } = req.body;
       if (!title || title.trim().length < 3) throw new Error('Titre trop court');
 
       const parsedPrice = parseFloat(price);
@@ -236,7 +260,7 @@ router.post('/', authMiddleware, (req, res) => {
 
       const productData = {
         title: title.trim(),
-        description: req.body.description?.trim() || null,
+        description: description?.trim() || null,
         price: parsedPrice,
         original_price: original_price ? parseFloat(original_price) : null,
         category: category || 'autre',
@@ -258,14 +282,12 @@ router.post('/', authMiddleware, (req, res) => {
       let uploadedImages = [];
       if (req.files?.length > 0) {
         for (const file of req.files) {
-          // Upload buffer vers Cloudinary
           const uploadResult = await uploadToCloudinary(file.buffer, {
             folder: 'shopnet',
             resource_type: 'image',
             public_id: `product_${Date.now()}_${Math.floor(Math.random() * 10000)}`
           });
 
-          // Stocker en base (public_id = image_path, url = absolute_url)
           await connection.query(
             'INSERT INTO product_images (product_id, image_path, absolute_url) VALUES (?, ?, ?)',
             [productId, uploadResult.public_id, uploadResult.secure_url]
@@ -299,5 +321,107 @@ router.post('/', authMiddleware, (req, res) => {
   });
 });
 
-module.exports = router;
+// ----------------------------
+// POST /products/:id/like — Like/Unlike d'un produit
+// ----------------------------
+router.post('/:id/like', authMiddleware, async (req, res) => {
+  let connection;
+  try {
+    const productId = req.params.id;
+    const userId = req.userId;
 
+    connection = await db.getConnection();
+    await connection.beginTransaction();
+
+    const [existingLikes] = await connection.query(
+      'SELECT id FROM product_likes WHERE product_id = ? AND user_id = ?',
+      [productId, userId]
+    );
+
+    let liked;
+    if (existingLikes.length > 0) {
+      await connection.query(
+        'DELETE FROM product_likes WHERE product_id = ? AND user_id = ?',
+        [productId, userId]
+      );
+      await connection.query(
+        'UPDATE products SET likes_count = GREATEST(0, likes_count - 1) WHERE id = ?',
+        [productId]
+      );
+      liked = false;
+    } else {
+      await connection.query(
+        'INSERT INTO product_likes (product_id, user_id) VALUES (?, ?)',
+        [productId, userId]
+      );
+      await connection.query(
+        'UPDATE products SET likes_count = likes_count + 1 WHERE id = ?',
+        [productId]
+      );
+      liked = true;
+    }
+
+    const [[{ likes_count }]] = await connection.query(
+      'SELECT likes_count FROM products WHERE id = ?',
+      [productId]
+    );
+
+    await connection.commit();
+    connection.release();
+
+    res.json({
+      success: true,
+      liked,
+      likes: likes_count
+    });
+
+  } catch (error) {
+    if (connection) {
+      await connection.rollback();
+      connection.release();
+    }
+    console.error('Erreur like/unlike:', error);
+    res.status(500).json({ success: false, error: 'Erreur serveur' });
+  }
+});
+
+// ----------------------------
+// POST /products/:id/share — Incrémenter les partages
+// ----------------------------
+router.post('/:id/share', authMiddleware, async (req, res) => {
+  let connection;
+  try {
+    const productId = req.params.id;
+    
+    connection = await db.getConnection();
+    await connection.beginTransaction();
+
+    await connection.query(
+      'UPDATE products SET shares_count = shares_count + 1 WHERE id = ?',
+      [productId]
+    );
+
+    const [[product]] = await connection.query(
+      'SELECT id, shares_count FROM products WHERE id = ?',
+      [productId]
+    );
+
+    await connection.commit();
+    connection.release();
+
+    res.json({
+      success: true,
+      shares: product.shares_count
+    });
+
+  } catch (error) {
+    if (connection) {
+      await connection.rollback();
+      connection.release();
+    }
+    console.error('Erreur partage:', error);
+    res.status(500).json({ success: false, error: 'Erreur serveur' });
+  }
+});
+
+module.exports = router;
