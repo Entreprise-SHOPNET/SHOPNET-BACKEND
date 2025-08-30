@@ -11,7 +11,7 @@ router.use(cors({
   origin: [
     'http://localhost', 
     'http://100.64.134.89',
-    'https://shopnet-backend.onrender.com'
+    'https://shopnet-backend.onrender.com' // Ajoutez votre URL Render ici
   ],
   methods: ['GET', 'POST', 'PUT', 'DELETE']
 }));
@@ -60,26 +60,19 @@ const safeJsonParse = (str) => {
 };
 
 // ----------------------------
+// GET /products — Liste complète (inchangé)
+// ----------------------------
+// ----------------------------
 // GET /products — Liste avec pagination
 // ----------------------------
 router.get('/', authMiddleware, async (req, res) => {
   try {
     const userId = req.userId;
 
-    // Pagination: page par défaut = 1, limite par défaut = 5
+    // Pagination: page par défaut = 1, limite par défaut = 50
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 5;
+    const limit = parseInt(req.query.limit) || 50;
     const offset = (page - 1) * limit;
-    const category = req.query.category;
-
-    // Construction de la clause WHERE
-    let whereClause = '';
-    let queryParams = [userId];
-    
-    if (category && category !== 'all') {
-      whereClause = ' WHERE p.category = ?';
-      queryParams.push(category);
-    }
 
     // Requête principale avec OFFSET/LIMIT
     const [products] = await db.query(`
@@ -98,19 +91,12 @@ router.get('/', authMiddleware, async (req, res) => {
         ) AS isLiked
       FROM products p
       LEFT JOIN utilisateurs u ON p.seller_id = u.id
-      ${whereClause}
       ORDER BY p.created_at DESC
       LIMIT ? OFFSET ?
-    `, [...queryParams, limit, offset]);
+    `, [userId, limit, offset]);
 
     // Compter le total pour pagination
-    let countQuery = 'SELECT COUNT(*) AS total FROM products p';
-    if (category && category !== 'all') {
-      countQuery += ' WHERE p.category = ?';
-    }
-    
-    const countParams = category && category !== 'all' ? [category] : [];
-    const [[{ total }]] = await db.query(countQuery, countParams);
+    const [[{ total }]] = await db.query(`SELECT COUNT(*) AS total FROM products`);
 
     // Formatter le résultat
     const formatted = products.map(product => ({
@@ -156,7 +142,7 @@ router.get('/', authMiddleware, async (req, res) => {
 });
 
 // ----------------------------
-// GET /products/:id — Détail d'un produit
+// GET /products/:id — Détail d’un produit (inchangé)
 // ----------------------------
 router.get('/:id', authMiddleware, async (req, res) => {
   try {
