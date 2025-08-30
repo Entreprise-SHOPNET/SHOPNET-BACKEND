@@ -62,22 +62,17 @@ router.get('/', authMiddleware, async (req, res) => {
   try {
     const userId = req.userId;
 
-    // Pagination: page par défaut = 1, limite par défaut = 5
-    const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 5;
-    const offset = (page - 1) * limit;
-    const category = req.query.category || 'all';
+    // Récupération des paramètres de pagination
+    const offset = parseInt(req.query.offset) || 0;
+    const limit = parseInt(req.query.limit) || 5; // Par défaut 5 produits
+    const category = req.query.category;
 
-    // Construction des clauses WHERE
     let whereClause = '';
-    let countWhereClause = '';
     let queryParams = [userId];
     let countParams = [];
 
-    // Filtre par catégorie
-    if (category && category !== 'all') {
+    if (category && category !== 'undefined') {
       whereClause = ' WHERE p.category = ?';
-      countWhereClause = ' WHERE category = ?';
       queryParams.push(category);
       countParams.push(category);
     }
@@ -103,13 +98,12 @@ router.get('/', authMiddleware, async (req, res) => {
       ORDER BY p.created_at DESC
       LIMIT ? OFFSET ?
     `;
-    
     queryParams.push(limit, offset);
 
-    // Compter le total pour pagination
-    const countQuery = `SELECT COUNT(*) AS total FROM products p ${countWhereClause}`;
-    
     const [products] = await db.query(query, queryParams);
+
+    // Compter le total pour pagination
+    const countQuery = `SELECT COUNT(*) AS total FROM products p ${whereClause}`;
     const [[{ total }]] = await db.query(countQuery, countParams);
 
     // Formatter le résultat
@@ -141,12 +135,10 @@ router.get('/', authMiddleware, async (req, res) => {
     // Réponse avec infos de pagination
     res.json({
       success: true,
-      page,
+      offset,
       limit,
       total,
-      totalPages: Math.ceil(total / limit),
       count: formatted.length,
-      hasNext: page < Math.ceil(total / limit),
       products: formatted
     });
 
@@ -157,7 +149,7 @@ router.get('/', authMiddleware, async (req, res) => {
 });
 
 // ----------------------------
-// GET /products/:id — Détail d'un produit
+// GET /products/:id — Détail d'un produit (inchangé)
 // ----------------------------
 router.get('/:id', authMiddleware, async (req, res) => {
   try {
@@ -314,75 +306,6 @@ router.post('/', authMiddleware, (req, res) => {
       res.status(400).json({ success: false, error: error.message });
     }
   });
-});
-
-// ----------------------------
-// POST /products/:id/like — Like/Unlike un produit
-// ----------------------------
-router.post('/:id/like', authMiddleware, async (req, res) => {
-  try {
-    const productId = req.params.id;
-    const userId = req.userId;
-
-    // Vérifier si l'utilisateur a déjà liké ce produit
-    const [existingLikes] = await db.query(
-      'SELECT * FROM product_likes WHERE product_id = ? AND user_id = ?',
-      [productId, userId]
-    );
-
-    if (existingLikes.length > 0) {
-      // Supprimer le like
-      await db.query(
-        'DELETE FROM product_likes WHERE product_id = ? AND user_id = ?',
-        [productId, userId]
-      );
-      
-      // Décrémenter le compteur de likes
-      await db.query(
-        'UPDATE products SET likes_count = likes_count - 1 WHERE id = ?',
-        [productId]
-      );
-      
-      res.json({ success: true, liked: false });
-    } else {
-      // Ajouter le like
-      await db.query(
-        'INSERT INTO product_likes (product_id, user_id) VALUES (?, ?)',
-        [productId, userId]
-      );
-      
-      // Incrémenter le compteur de likes
-      await db.query(
-        'UPDATE products SET likes_count = likes_count + 1 WHERE id = ?',
-        [productId]
-      );
-      
-      res.json({ success: true, liked: true });
-    }
-  } catch (error) {
-    console.error('Erreur like/unlike produit:', error.message);
-    res.status(500).json({ success: false, error: 'Erreur serveur' });
-  }
-});
-
-// ----------------------------
-// POST /products/:id/share — Incrémenter le compteur de partages
-// ----------------------------
-router.post('/:id/share', authMiddleware, async (req, res) => {
-  try {
-    const productId = req.params.id;
-
-    // Incrémenter le compteur de partages
-    await db.query(
-      'UPDATE products SET shares_count = shares_count + 1 WHERE id = ?',
-      [productId]
-    );
-    
-    res.json({ success: true, message: 'Partage enregistré' });
-  } catch (error) {
-    console.error('Erreur partage produit:', error.message);
-    res.status(500).json({ success: false, error: 'Erreur serveur' });
-  }
 });
 
 module.exports = router;
