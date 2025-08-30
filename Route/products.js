@@ -1,4 +1,5 @@
 
+
 const express = require('express');
 const multer = require('multer');
 const path = require('path');
@@ -56,15 +57,8 @@ const safeJsonParse = (str) => {
   }
 };
 
-// Fonction pour normaliser les catégories (supprime les émojis et caractères spéciaux)
-const normaliserCategorie = (categorie) => {
-  return categorie
-    .replace(/[^a-zA-Z\u00C0-\u017F]/g, '') // Garde les lettres et accents
-    .toLowerCase();
-};
-
 // ----------------------------
-// GET /products — Liste avec pagination
+// GET /products — Liste complète (inchangé)
 // ----------------------------
 // ----------------------------
 // GET /products — Liste avec pagination
@@ -73,23 +67,12 @@ router.get('/', authMiddleware, async (req, res) => {
   try {
     const userId = req.userId;
 
-    // Récupération des paramètres
-    const limit = parseInt(req.query.limit) || 10;
-    const offset = parseInt(req.query.offset) || 0;
-    const category = req.query.category ? normaliserCategorie(req.query.category) : null;
+    // Pagination: page par défaut = 1, limite par défaut = 50
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 50;
+    const offset = (page - 1) * limit;
 
-    // Construction de la clause WHERE
-    let whereClause = '';
-    let queryParams = [userId];
-    let countParams = [];
-
-    if (category && category !== 'all') {
-      whereClause = ' WHERE p.category = ?';
-      queryParams.push(category);
-      countParams.push(category);
-    }
-
-    // Requête pour récupérer les produits
+    // Requête principale avec OFFSET/LIMIT
     const [products] = await db.query(`
       SELECT 
         p.*,
@@ -106,54 +89,48 @@ router.get('/', authMiddleware, async (req, res) => {
         ) AS isLiked
       FROM products p
       LEFT JOIN utilisateurs u ON p.seller_id = u.id
-      ${whereClause}
       ORDER BY p.created_at DESC
       LIMIT ? OFFSET ?
-    `, [...queryParams, limit, offset]);
+    `, [userId, limit, offset]);
 
-    // Requête pour compter le total
-    const countQuery = `SELECT COUNT(*) AS total FROM products p ${whereClause}`;
-    const [[countResult]] = await db.query(countQuery, countParams);
-    const total = countResult.total || 0;
+    // Compter le total pour pagination
+    const [[{ total }]] = await db.query(`SELECT COUNT(*) AS total FROM products`);
 
-    // Formatter les produits
+    // Formatter le résultat
     const formatted = products.map(product => ({
-      id: product.id.toString(),
-      title: product.title || 'Titre non disponible',
-      description: product.description || 'Description non disponible',
-      price: parseFloat(product.price) || 0,
-      discount: product.original_price && product.price
-        ? Math.round((1 - (product.price / product.original_price)) * 100)
-        : 0,
-      images: product.image_urls || [],
+      ...product,
+      title: product.title ?? "Titre non disponible",
+      description: product.description ?? "Description non disponible",
+      images: product.images || [],
       image_urls: product.image_urls || [],
+      delivery_options: safeJsonParse(product.delivery_options),
+      price: parseFloat(product.price) || 0,
+      original_price: product.original_price ? parseFloat(product.original_price) : null,
+      stock: parseInt(product.stock) || 0,
+      likes: product.likes_count || 0,
+      shares: product.shares_count ?? 0,
+      isLiked: Boolean(product.isLiked),
+      comments: product.comments_count ?? 0,
       seller: {
-        id: product.seller_id?.toString() || "1",
-        name: product.seller_name || "Vendeur inconnu",
+        id: product.seller_id?.toString(),
+        name: product.seller_name ?? "Vendeur inconnu",
         avatar: product.seller_avatar
           ? (product.seller_avatar.startsWith('http')
-              ? product.seller.avatar
+              ? product.seller_avatar
               : `${req.protocol}://${req.get('host')}${product.seller_avatar}`)
-          : 'https://via.placeholder.com/40',
-      },
-      rating: product.rating || 0,
-      comments: product.comments_count || 0,
-      likes: product.likes_count || 0,
-      location: product.location || 'Lubumbashi',
-      isLiked: Boolean(product.isLiked),
-      shares: product.shares_count || 0
+          : null
+      }
     }));
 
-    // Réponse
+    // Réponse avec infos de pagination
     res.json({
       success: true,
-      products: formatted,
-      pagination: {
-        limit,
-        offset,
-        total,
-        hasMore: offset + limit < total
-      }
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit),
+      count: formatted.length,
+      products: formatted
     });
 
   } catch (error) {
@@ -161,8 +138,9 @@ router.get('/', authMiddleware, async (req, res) => {
     res.status(500).json({ success: false, error: 'Erreur serveur' });
   }
 });
+
 // ----------------------------
-// GET /products/:id — Détail d'un produit
+// GET /products/:id — Détail d’un produit (inchangé)
 // ----------------------------
 router.get('/:id', authMiddleware, async (req, res) => {
   try {
@@ -322,3 +300,4 @@ router.post('/', authMiddleware, (req, res) => {
 });
 
 module.exports = router;
+
