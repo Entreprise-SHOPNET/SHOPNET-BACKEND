@@ -3,42 +3,10 @@ const router = express.Router();
 const db = require('../../db');
 const authMiddleware = require('../../middlewares/authMiddleware');
 const multer = require('multer');
-const cloudinary = require('cloudinary').v2;
+const path = require('path');
+const fs = require('fs');
 
-// --- Config Cloudinary ---
-cloudinary.config({
-  cloud_name: process.env.CLOUD_NAME,
-  api_key: process.env.API_KEY,
-  api_secret: process.env.API_SECRET,
-});
-
-// --- Multer en mémoire ---
-const memoryStorage = multer.memoryStorage();
-const uploadMemory = multer({
-  storage: memoryStorage,
-  fileFilter: (req, file, cb) => {
-    const ext = file.originalname.split('.').pop().toLowerCase();
-    if (['jpg', 'jpeg', 'png', 'webp'].includes(ext)) cb(null, true);
-    else cb(new Error('Seuls les formats JPG, PNG et WEBP sont autorisés'));
-  },
-  limits: { fileSize: 5 * 1024 * 1024 },
-});
-
-// --- Utilitaire upload buffer vers Cloudinary ---
-function uploadBufferToCloudinary(buffer, folder) {
-  return new Promise((resolve, reject) => {
-    const stream = cloudinary.uploader.upload_stream(
-      { folder, resource_type: 'image' },
-      (err, result) => {
-        if (err) reject(err);
-        else resolve(result);
-      }
-    );
-    stream.end(buffer);
-  });
-}
-
-// --- GET /profile : récupération du profil + statistiques ---
+// --- GET /profile : récupération du profil + statistiques
 router.get('/profile', authMiddleware, async (req, res) => {
   try {
     const userId = req.userId;
@@ -62,13 +30,14 @@ router.get('/profile', authMiddleware, async (req, res) => {
     }
 
     res.json({ success: true, user: rows[0] });
+
   } catch (err) {
-    console.error('Erreur GET /profile :', err);
+    console.error('Erreur dans GET /profile :', err);
     res.status(500).json({ success: false, message: 'Erreur serveur' });
   }
 });
 
-// --- PUT /profile : mise à jour des informations texte ---
+// --- PUT /profile : mise à jour des informations texte du profil
 router.put('/profile', authMiddleware, async (req, res) => {
   try {
     const userId = req.userId;
@@ -82,74 +51,180 @@ router.put('/profile', authMiddleware, async (req, res) => {
     );
 
     res.json({ success: true, message: 'Profil mis à jour avec succès' });
+
   } catch (err) {
     console.error('Erreur PUT /profile :', err);
     res.status(500).json({ success: false, message: 'Erreur lors de la mise à jour' });
   }
 });
 
-// --- PUT /profile/photo Cloudinary ---
+// --- Configuration Multer avec logs d'erreur et vérification des dossiers
+function ensureDirExists(dir) {
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+    console.log(`Dossier créé : ${dir}`);
+  }
+}
+
+// Storage profile
+const profileStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const dir = 'uploads/profile';
+    ensureDirExists(dir);
+    cb(null, dir);
+  },
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname);
+    const filename = `profile_${Date.now()}${ext}`;
+    cb(null, filename);
+  }
+});
+
+// Storage cover
+const coverStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const dir = 'uploads/cover';
+    ensureDirExists(dir);
+    cb(null, dir);
+  },
+  filename: (req, file, cb) => {
+    const ext = path.extname(file.originalname);
+    const filename = `cover_${Date.now()}${ext}`;
+    cb(null, filename);
+  }
+});
+
+// File filter Multer
+function imageFileFilter(req, file, cb) {
+  const ext = path.extname(file.originalname).toLowerCase();
+  const allowedExt = ['.jpg', '.jpeg', '.png', '.webp'];
+  if (!allowedExt.includes(ext)) {
+    return cb(new Error('Seuls les formats JPG, PNG et WEBP sont autorisés'));
+  }
+  cb(null, true);
+}
+
+const uploadProfile = multer({
+  storage: profileStorage,
+  fileFilter: imageFileFilter,
+  limits: { fileSize: 5 * 1024 * 1024 }
+});
+
+const uploadCover = multer({
+  storage: coverStorage,
+  fileFilter: imageFileFilter,
+  limits: { fileSize: 5 * 1024 * 1024 }
+});
+
+// Middleware pour gérer erreurs multer
+function multerErrorHandler(err, req, res, next) {
+  if (err instanceof multer.MulterError) {
+    console.error('Erreur Multer:', err);
+    return res.status(400).json({ success: false, message: err.message });
+  } else if (err) {
+    console.error('Erreur upload:', err);
+    return res.status(400).json({ success: false, message: err.message });
+  }
+  next();
+}
+
+// --- PUT /profile/photo
 router.put(
   '/profile/photo',
   authMiddleware,
-  uploadMemory.single('profile_photo'),
+  uploadProfile.single('profile_photo'),
   async (req, res) => {
     try {
       const userId = req.userId;
 
       if (!req.file) {
+        console.error('Aucun fichier reçu dans /profile/photo');
         return res.status(400).json({ success: false, message: 'Aucun fichier reçu' });
       }
 
-      const uploadResult = await uploadBufferToCloudinary(req.file.buffer, 'profile_photos');
+      console.log('Fichier reçu /profile/photo:', req.file);
+
+      const profilePhotoUrl = `https://shopnet-backend.onrender.com/uploads/profile/${req.file.filename}`;
 
       await db.execute(
         'UPDATE utilisateurs SET profile_photo = ? WHERE id = ?',
-        [uploadResult.secure_url, userId]
+        [profilePhotoUrl, userId]
       );
 
       res.json({
         success: true,
         message: 'Photo de profil mise à jour',
-        profile_photo: uploadResult.secure_url
+        profile_photo: profilePhotoUrl
       });
     } catch (err) {
-      console.error('Erreur PUT /profile/photo Cloudinary :', err);
+      console.error('Erreur PUT /profile/photo :', err);
       res.status(500).json({ success: false, message: 'Erreur serveur' });
     }
   }
 );
 
-// --- PUT /cover/photo Cloudinary ---
+
+
+// --- GET /my-products : récupérer les produits de l'utilisateur connecté
+router.get('/my-products', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.userId;
+
+    const [products] = await db.execute(
+      `SELECT p.id, p.title, p.price, pi.url AS photo
+       FROM products p
+       LEFT JOIN product_images pi ON pi.product_id = p.id
+       WHERE p.seller_id = ?
+       GROUP BY p.id`,
+      [userId]
+    );
+
+    res.json({ success: true, products });
+  } catch (err) {
+    console.error('Erreur GET /my-products :', err);
+    res.status(500).json({ success: false, message: 'Erreur serveur' });
+  }
+});
+
+
+
+
+// --- PUT /cover/photo
 router.put(
   '/cover/photo',
   authMiddleware,
-  uploadMemory.single('cover_photo'),
+  uploadCover.single('cover_photo'),
   async (req, res) => {
     try {
       const userId = req.userId;
 
       if (!req.file) {
+        console.error('Aucun fichier reçu dans /cover/photo');
         return res.status(400).json({ success: false, message: 'Aucun fichier reçu' });
       }
 
-      const uploadResult = await uploadBufferToCloudinary(req.file.buffer, 'cover_photos');
+      console.log('Fichier reçu /cover/photo:', req.file);
+
+      const coverPhotoUrl = `https://shopnet-backend.onrender.com/uploads/cover/${req.file.filename}`;
 
       await db.execute(
         'UPDATE utilisateurs SET cover_photo = ? WHERE id = ?',
-        [uploadResult.secure_url, userId]
+        [coverPhotoUrl, userId]
       );
 
       res.json({
         success: true,
         message: 'Photo de couverture mise à jour',
-        cover_photo: uploadResult.secure_url
+        cover_photo: coverPhotoUrl
       });
     } catch (err) {
-      console.error('Erreur PUT /cover/photo Cloudinary :', err);
+      console.error('Erreur PUT /cover/photo :', err);
       res.status(500).json({ success: false, message: 'Erreur serveur' });
     }
   }
 );
 
+router.use(multerErrorHandler);
+
 module.exports = router;
+
