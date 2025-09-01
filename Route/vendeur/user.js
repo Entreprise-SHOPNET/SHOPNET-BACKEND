@@ -166,28 +166,54 @@ router.put(
 
 
 // --- GET /my-products : récupérer les produits de l'utilisateur connecté
+// --- GET /my-products : récupérer les produits de l'utilisateur connecté avec leurs images
 router.get('/my-products', authMiddleware, async (req, res) => {
   try {
     const userId = req.userId;
 
+    // Récupérer tous les produits du vendeur
     const [products] = await db.execute(
-      `SELECT p.id, p.title, p.price, pi.url AS photo
-       FROM products p
-       LEFT JOIN product_images pi ON pi.product_id = p.id
-       WHERE p.seller_id = ?
-       GROUP BY p.id`,
+      `SELECT id, title, price
+       FROM products
+       WHERE seller_id = ?`,
       [userId]
     );
 
-    res.json({ success: true, products });
+    if (products.length === 0) {
+      return res.json({ success: true, products: [] });
+    }
+
+    // Récupérer toutes les images des produits de l'utilisateur
+    const productIds = products.map(p => p.id);
+    const [images] = await db.query(
+      `SELECT product_id, absolute_url
+       FROM product_images
+       WHERE product_id IN (?)`,
+      [productIds]
+    );
+
+    // Regrouper les images par product_id
+    const imagesByProduct = {};
+    images.forEach(img => {
+      if (!imagesByProduct[img.product_id]) {
+        imagesByProduct[img.product_id] = [];
+      }
+      imagesByProduct[img.product_id].push(img.absolute_url);
+    });
+
+    // Ajouter les images à chaque produit
+    const productsWithImages = products.map(p => ({
+      ...p,
+      images: imagesByProduct[p.id] || []
+    }));
+
+    res.json({ success: true, products: productsWithImages });
+
   } catch (err) {
     console.error('Erreur GET /my-products :', err);
     res.status(500).json({ success: false, message: 'Erreur serveur' });
   }
 });
-
-
-
 
 // --- PUT /cover/photo
 router.put(
