@@ -7,7 +7,7 @@ const db = require('../../db');
 const authMiddleware = require('../../middlewares/authMiddleware');
 
 // Remplace <cloud_name> par ton nom Cloudinary
-const CLOUDINARY_URL_PREFIX = 'https://res.cloudinary.com/<cloud_name>/image/upload/';
+const CLOUDINARY_URL_PREFIX = 'https://res.cloudinary.com/dddr7gb6w/image/upload/';
 
 // GET /api/profile/statistiques
 router.get('/', authMiddleware, async (req, res) => {
