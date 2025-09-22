@@ -7,11 +7,10 @@ const express = require('express');
 const router = express.Router();
 const pool = require('../../db');
 const authMiddleware = require('../../middlewares/authMiddleware');
-const axios = require('axios');
 
 router.use(authMiddleware);
 
-// --- Créer une commande ---
+// --- Créer une commande + notifier le vendeur ---
 router.post('/', async (req, res) => {
   try {
     const acheteur_id = req.userId;
@@ -21,8 +20,9 @@ router.post('/', async (req, res) => {
       return res.status(400).json({ success: false, error: 'Données manquantes ou invalides' });
     }
 
+    // Récupérer le vendeur et titre du premier produit
     const [prodRow] = await pool.query(
-      'SELECT seller_id, title, price FROM products WHERE id = ?',
+      'SELECT seller_id, title FROM products WHERE id = ?',
       [produits[0].produit_id]
     );
 
@@ -31,26 +31,31 @@ router.post('/', async (req, res) => {
     }
 
     const vendeur_id = prodRow[0].seller_id;
+    const produit_nom = prodRow[0].title;
 
     const conn = await pool.getConnection();
     try {
       await conn.beginTransaction();
 
-      // Calcul total
+      // Calculer total (somme prix * quantité)
       let totalCommande = 0;
       for (const p of produits) {
         const [pRow] = await conn.query('SELECT price FROM products WHERE id = ?', [p.produit_id]);
+        if (pRow.length === 0) {
+          await conn.rollback();
+          return res.status(404).json({ success: false, error: `Produit ${p.produit_id} introuvable` });
+        }
         totalCommande += pRow[0].price * p.quantite;
       }
 
-      // Dernier numero_commande
+      // ➕ Récupérer dernier numero_commande du vendeur
       const [rows] = await conn.query(
         'SELECT MAX(numero_commande) AS dernier FROM commandes WHERE vendeur_id = ?',
         [vendeur_id]
       );
       const numero_commande = (rows[0].dernier || 0) + 1;
 
-      // Insérer commande
+      // ✅ Insérer commande avec numero_commande propre au vendeur
       const [result] = await conn.query(
         `INSERT INTO commandes 
           (acheteur_id, vendeur_id, numero_commande, status, total, mode_paiement, adresse_livraison, commentaire, date_commande) 
@@ -60,7 +65,7 @@ router.post('/', async (req, res) => {
 
       const commandeId = result.insertId;
 
-      // Lier produits
+      // Lier les produits à la commande
       for (const p of produits) {
         const [pRow] = await conn.query('SELECT price FROM products WHERE id = ?', [p.produit_id]);
         await conn.query(
@@ -71,15 +76,35 @@ router.post('/', async (req, res) => {
         );
       }
 
+      // 🔔 Créer notification vendeur
+      const notifContenu = `📦 Nouvelle commande pour "${produit_nom}" (#${numero_commande}).`;
+      await conn.query(
+        `INSERT INTO notifications (utilisateur_id, type, contenu, date_notification) VALUES (?, ?, ?, NOW())`,
+        [vendeur_id, 'commande', notifContenu]
+      );
+
       await conn.commit();
-      conn.release();
+
+      // 🔴 Temps réel (Socket.IO) si présent
+      if (req.notifyVendor) {
+        req.notifyVendor(vendeur_id, {
+          commandeId,
+          numero_commande,
+          produit_nom,
+          message: notifContenu,
+          date: new Date(),
+        });
+      } else {
+        console.warn('notifyVendor non défini');
+      }
 
       return res.json({ success: true, commandeId, numero_commande });
     } catch (err) {
       await conn.rollback();
-      conn.release();
       console.error('Transaction commande error:', err);
       return res.status(500).json({ success: false, error: 'Erreur pendant la transaction' });
+    } finally {
+      conn.release();
     }
   } catch (err) {
     console.error('POST /commandes error:', err);
@@ -94,7 +119,7 @@ router.get('/', async (req, res) => {
     const { role } = req.query;
 
     let query = `
-      SELECT c.*, u1.fullName AS acheteur_nom, u2.fullName AS vendeur_nom, u1.telephone AS acheteur_telephone
+      SELECT c.*, u1.fullName AS acheteur_nom, u2.fullName AS vendeur_nom
       FROM commandes c
       JOIN utilisateurs u1 ON c.acheteur_id = u1.id
       JOIN utilisateurs u2 ON c.vendeur_id = u2.id
@@ -117,18 +142,17 @@ router.get('/', async (req, res) => {
   }
 });
 
-// --- Changer le statut d’une commande + WhatsApp ---
-router.put('/:id/status', async (req, res) => {
+// --- Changer le statut d’une commande ---
+router.patch('/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const { status } = req.body;
-    const validStatuses = ['en_attente', 'confirmee', 'livree', 'annulee'];
+    const validStatuses = ['en_attente', 'confirmee', 'en_cours', 'livree', 'annulee'];
 
     if (!validStatuses.includes(status)) {
       return res.status(400).json({ success: false, error: 'Statut invalide' });
     }
 
-    // Mettre à jour le statut
     const [result] = await pool.query(
       'UPDATE commandes SET status = ? WHERE id = ?',
       [status, id]
@@ -138,32 +162,9 @@ router.put('/:id/status', async (req, res) => {
       return res.status(404).json({ success: false, error: 'Commande non trouvée' });
     }
 
-    // Récup infos acheteur
-    const [rows] = await pool.query(
-      'SELECT c.numero_commande, u.fullName AS acheteur_nom, u.telephone AS acheteur_telephone FROM commandes c JOIN utilisateurs u ON c.acheteur_id = u.id WHERE c.id = ?',
-      [id]
-    );
-    const commande = rows[0];
-
-    // Préparer message WhatsApp
-    let message = '';
-    if (status === 'confirmee') {
-      message = `Bonjour ${commande.acheteur_nom} 👋, votre commande #${commande.numero_commande} a été **acceptée** par le vendeur. Merci pour votre achat !`;
-    } else if (status === 'annulee') {
-      message = `Bonjour ${commande.acheteur_nom} 👋, votre commande #${commande.numero_commande} a été **refusée** par le vendeur. Pour plus d’infos, contactez-le.`;
-    }
-
-    // Envoyer WhatsApp via wa.me (facultatif)
-    if (message) {
-      const phone = commande.acheteur_telephone.replace(/^\+?0?/, '243'); // RDC
-      const waUrl = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
-      // Ici tu peux soit envoyer via un webhook, soit juste fournir le lien
-      console.log('WhatsApp URL:', waUrl);
-    }
-
-    return res.json({ success: true, message: 'Statut mis à jour', statut: status });
+    return res.json({ success: true, message: 'Statut mis à jour' });
   } catch (err) {
-    console.error('PUT /commandes/:id/status error:', err);
+    console.error('PATCH /commandes/:id error:', err);
     return res.status(500).json({ success: false, error: 'Erreur serveur' });
   }
 });
