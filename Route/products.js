@@ -10,7 +10,11 @@ const cors = require('cors');
 const cloudinary = require('cloudinary').v2;
 
 router.use(cors({
-  origin: ['http://localhost', 'http://100.64.134.89'],
+  origin: [
+    'http://localhost', 
+    'http://100.64.134.89',
+    'https://shopnet-backend.onrender.com' // Ajoutez votre URL Render ici
+  ],
   methods: ['GET', 'POST', 'PUT', 'DELETE']
 }));
 
@@ -278,6 +282,7 @@ router.post('/', authMiddleware, (req, res) => {
         }
       }
 
+      
       await connection.commit();
       connection.release();
 
@@ -298,6 +303,68 @@ router.post('/', authMiddleware, (req, res) => {
     }
   });
 });
+
+
+
+
+// ----------------------------
+// DELETE /products/:id — Supprimer un produit
+// ----------------------------
+router.delete('/:id', authMiddleware, async (req, res) => {
+  const productId = req.params.id;
+  const userId = req.userId; // 🛡️ vient du token JWT
+  let connection;
+
+  try {
+    connection = await db.getConnection();
+    await connection.beginTransaction();
+
+    // Vérifier que le produit appartient bien à l’utilisateur connecté
+    const [rows] = await connection.query(
+      'SELECT id FROM products WHERE id = ? AND seller_id = ? LIMIT 1',
+      [productId, userId]
+    );
+    if (rows.length === 0) {
+      await connection.release();
+      return res.status(403).json({ success: false, error: "Vous n'êtes pas autorisé à supprimer ce produit" });
+    }
+
+    // Récupérer toutes les images Cloudinary liées
+    const [images] = await connection.query(
+      'SELECT image_path FROM product_images WHERE product_id = ?',
+      [productId]
+    );
+
+    // Supprimer les images sur Cloudinary
+    for (const img of images) {
+      try {
+        await cloudinary.uploader.destroy(img.image_path);
+      } catch (err) {
+        console.warn(`⚠️ Impossible de supprimer ${img.image_path} de Cloudinary :`, err.message);
+      }
+    }
+
+    // Supprimer les images en base
+    await connection.query('DELETE FROM product_images WHERE product_id = ?', [productId]);
+
+    // Supprimer le produit
+    await connection.query('DELETE FROM products WHERE id = ?', [productId]);
+
+    await connection.commit();
+    connection.release();
+
+    res.json({ success: true, message: 'Produit supprimé avec succès' });
+
+  } catch (error) {
+    if (connection) {
+      await connection.rollback();
+      connection.release();
+    }
+    console.error('Erreur DELETE /products/:id:', error.message);
+    res.status(500).json({ success: false, error: "Erreur lors de la suppression du produit" });
+  }
+});
+
 
 module.exports = router;
 

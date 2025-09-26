@@ -163,6 +163,31 @@ router.put(
   }
 );
 
+
+
+// --- GET /my-products : récupérer les produits de l'utilisateur connecté
+router.get('/my-products', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.userId;
+
+    const [products] = await db.execute(
+      `SELECT p.id, p.title, p.price, pi.url AS photo
+       FROM products p
+       LEFT JOIN product_images pi ON pi.product_id = p.id
+       WHERE p.seller_id = ?
+       GROUP BY p.id`,
+      [userId]
+    );
+
+    res.json({ success: true, products });
+  } catch (err) {
+    console.error('Erreur GET /my-products :', err);
+    res.status(500).json({ success: false, message: 'Erreur serveur' });
+  }
+});
+
+
+
 // --- PUT /cover/photo
 router.put(
   '/cover/photo',
@@ -201,3 +226,5 @@ router.put(
 router.use(multerErrorHandler);
 
 module.exports = router;
+
+

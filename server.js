@@ -167,8 +167,8 @@ const statistiquesRoute = require('./Route/Profile/statistiques');
 const uploadCloudinaryRoute = require('./Route/uploadCloudinary');
 
 
-app.use('/api/products', discoverRoute);    // ROUTE POUR VOIR LE PRODUIT DECOUVRIR
-app.use('/api/products', productsRoutes);
+app.use('/api/products', productsRoutes);       // d'abord le routeur principal des produits
+app.use('/api/products', discoverRoute);        // après, les routes “discover”
 app.use('/api/auth', authConnexionRoutes);
 app.use('/api/auth', authRegisterRoutes);
 app.use('/api/cart', cartRoutes);
