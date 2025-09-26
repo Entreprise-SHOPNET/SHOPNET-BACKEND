@@ -164,29 +164,11 @@ router.put(
 );
 
 
-
 // --- GET /my-products : récupérer les produits de l'utilisateur connecté
-<<<<<<< HEAD
-=======
-// --- GET /my-products : récupérer les produits de l'utilisateur connecté avec leurs images
->>>>>>> 2f31d4482174b10b9cf489819b34b5dd3594d05f
 router.get('/my-products', authMiddleware, async (req, res) => {
   try {
     const userId = req.userId;
-
-<<<<<<< HEAD
-    const [products] = await db.execute(
-      `SELECT p.id, p.title, p.price, pi.url AS photo
-       FROM products p
-       LEFT JOIN product_images pi ON pi.product_id = p.id
-       WHERE p.seller_id = ?
-       GROUP BY p.id`,
-      [userId]
-    );
-
-    res.json({ success: true, products });
-=======
-    // Récupérer tous les produits du vendeur
+     // Récupérer tous les produits du vendeur
     const [products] = await db.execute(
       `SELECT id, title, price
        FROM products
@@ -222,20 +204,16 @@ router.get('/my-products', authMiddleware, async (req, res) => {
       images: imagesByProduct[p.id] || []
     }));
 
+    // Retourner la réponse finale
     res.json({ success: true, products: productsWithImages });
 
->>>>>>> 2f31d4482174b10b9cf489819b34b5dd3594d05f
   } catch (err) {
     console.error('Erreur GET /my-products :', err);
     res.status(500).json({ success: false, message: 'Erreur serveur' });
   }
 });
 
-<<<<<<< HEAD
 
-
-=======
->>>>>>> 2f31d4482174b10b9cf489819b34b5dd3594d05f
 // --- PUT /cover/photo
 router.put(
   '/cover/photo',
@@ -274,8 +252,3 @@ router.put(
 router.use(multerErrorHandler);
 
 module.exports = router;
-
-<<<<<<< HEAD
-
-=======
->>>>>>> 2f31d4482174b10b9cf489819b34b5dd3594d05f
