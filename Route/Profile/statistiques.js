@@ -1,12 +1,13 @@
 
-
-
 // routes/profile/statistiques.js
 
 const express = require('express');
 const router = express.Router();
 const db = require('../../db');
 const authMiddleware = require('../../middlewares/authMiddleware');
+
+// Remplace <cloud_name> par ton nom Cloudinary
+const CLOUDINARY_URL_PREFIX = 'https://res.cloudinary.com/dddr7gb6w/image/upload/';
 
 // GET /api/profile/statistiques
 router.get('/', authMiddleware, async (req, res) => {
@@ -54,7 +55,7 @@ router.get('/', authMiddleware, async (req, res) => {
       [vendeurId]
     );
 
-    // 4. Top 3 produits les plus vendus (avec une image minimale)
+    // 4. Top 3 produits vendus
     const [topVendus] = await db.query(
       `
       SELECT 
@@ -73,7 +74,7 @@ router.get('/', authMiddleware, async (req, res) => {
       [vendeurId]
     );
 
-    // 5. Top 3 produits les plus vus (avec image)
+    // 5. Top 3 produits vus
     const [topVus] = await db.query(
       `
       SELECT 
@@ -93,11 +94,7 @@ router.get('/', authMiddleware, async (req, res) => {
 
     // 6. Total des vues
     const [[vueStats]] = await db.query(
-      `
-      SELECT IFNULL(SUM(views), 0) AS total_vues
-      FROM products
-      WHERE seller_id = ?
-    `,
+      `SELECT IFNULL(SUM(views), 0) AS total_vues FROM products WHERE seller_id = ?`,
       [vendeurId]
     );
 
@@ -123,7 +120,7 @@ router.get('/', authMiddleware, async (req, res) => {
       [vendeurId]
     );
 
-    // Construction réponse avec cast propre
+    // Construction réponse
     const responsePayload = {
       success: true,
       statistiques: {
@@ -141,7 +138,7 @@ router.get('/', authMiddleware, async (req, res) => {
             image: p.image_path
               ? p.image_path.startsWith('http')
                 ? p.image_path
-                : `${req.protocol}://${req.get('host')}${p.image_path}`
+                : `${CLOUDINARY_URL_PREFIX}${p.image_path}`
               : null,
           })),
           top_vus: topVus.map((p) => ({
@@ -151,7 +148,7 @@ router.get('/', authMiddleware, async (req, res) => {
             image: p.image_path
               ? p.image_path.startsWith('http')
                 ? p.image_path
-                : `${req.protocol}://${req.get('host')}${p.image_path}`
+                : `${CLOUDINARY_URL_PREFIX}${p.image_path}`
               : null,
           })),
         },

@@ -93,4 +93,69 @@ router.get('/:id', authenticateToken, async (req, res) => {
   }
 });
 
+// PUT /api/commandes/:id/status
+// Mettre à jour le statut et préparer message WhatsApp
+router.put('/:id/status', authenticateToken, async (req, res) => {
+  try {
+    const commandeId = req.params.id;
+    const { status } = req.body;
+
+    // Vérifier que le statut est valide
+    const validStatuses = ['en_attente', 'confirmee', 'annulee', 'livree'];
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({ success: false, error: 'Statut invalide' });
+    }
+
+    // 1️⃣ Mettre à jour le statut
+    const [updateResult] = await db.query(
+      'UPDATE commandes SET status = ? WHERE id = ?',
+      [status, commandeId]
+    );
+
+    if (updateResult.affectedRows === 0) {
+      return res.status(404).json({ success: false, error: 'Commande non trouvée' });
+    }
+
+    // 2️⃣ Récupérer infos acheteur
+    const [rows] = await db.query(
+      `SELECT c.numero_commande, u.fullName AS client_nom, u.phone AS client_tel
+       FROM commandes c
+       JOIN utilisateurs u ON c.acheteur_id = u.id
+       WHERE c.id = ?`,
+      [commandeId]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({ success: false, error: 'Commande ou client introuvable' });
+    }
+
+    const commande = rows[0];
+
+    // 3️⃣ Construire message WhatsApp selon statut
+    let message = '';
+    if (status === 'confirmee') {
+      message = `Bonjour ${commande.client_nom}, votre commande #${commande.numero_commande} a été ACCEPTÉE par le vendeur.`;
+    } else if (status === 'annulee') {
+      message = `Bonjour ${commande.client_nom}, votre commande #${commande.numero_commande} a été REFUSÉE par le vendeur.`;
+    } else {
+      message = `Bonjour ${commande.client_nom}, le statut de votre commande #${commande.numero_commande} a été mis à jour : ${status}.`;
+    }
+
+    // 4️⃣ Générer lien WhatsApp
+    const phone = '243' + commande.client_tel.replace(/^0/, ''); // RDC sans +
+    const waLink = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
+
+    // 5️⃣ Retourner lien WhatsApp au frontend
+    return res.json({
+      success: true,
+      message: 'Statut mis à jour et message WhatsApp prêt',
+      whatsappLink: waLink
+    });
+
+  } catch (err) {
+    console.error('Erreur PUT /commandes/:id/status:', err);
+    return res.status(500).json({ success: false, error: 'Erreur serveur' });
+  }
+});
+
 module.exports = router;
