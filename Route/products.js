@@ -309,6 +309,9 @@ router.post('/', authMiddleware, (req, res) => {
 // ----------------------------
 // DELETE /products/:id — Supprimer un produit
 // ----------------------------
+// ----------------------------
+// DELETE /products/:id — Supprimer un produit
+// ----------------------------
 router.delete('/:id', authMiddleware, async (req, res) => {
   const productId = req.params.id;
   const userId = req.userId; // 🛡️ vient du token JWT
@@ -328,13 +331,15 @@ router.delete('/:id', authMiddleware, async (req, res) => {
       return res.status(403).json({ success: false, error: "Vous n'êtes pas autorisé à supprimer ce produit" });
     }
 
-    // Récupérer toutes les images Cloudinary liées
+    // Supprimer toutes les entrées dans commande_produits (évite l'erreur foreign key)
+    await connection.query('DELETE FROM commande_produits WHERE produit_id = ?', [productId]);
+
+    // Supprimer toutes les images Cloudinary liées
     const [images] = await connection.query(
       'SELECT image_path FROM product_images WHERE product_id = ?',
       [productId]
     );
 
-    // Supprimer les images sur Cloudinary
     for (const img of images) {
       try {
         await cloudinary.uploader.destroy(img.image_path);
@@ -363,7 +368,6 @@ router.delete('/:id', authMiddleware, async (req, res) => {
     res.status(500).json({ success: false, error: "Erreur lors de la suppression du produit" });
   }
 });
-
 
 module.exports = router;
 
