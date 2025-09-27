@@ -9,17 +9,31 @@ const haversine = require("haversine-distance");
 const CLOUD_NAME = "dddr7gb6w";
 const CLOUD_BASE_URL = `https://res.cloudinary.com/${CLOUD_NAME}/image/upload/`;
 
-// Formater les produits avec URLs Cloudinary
+// Middleware pour vérifier JWT
+const jwt = require("jsonwebtoken");
+const verifyToken = (req, res, next) => {
+  const authHeader = req.headers.authorization;
+  if (!authHeader) return res.status(401).json({ success: false, message: "Token manquant" });
+
+  const token = authHeader.split(" ")[1];
+  jwt.verify(token, process.env.JWT_SECRET, (err, decoded) => {
+    if (err) return res.status(401).json({ success: false, message: "Token invalide" });
+    req.userId = decoded.id;
+    next();
+  });
+};
+
+// Formater les produits avec images Cloudinary
 async function formatProductsWithImages(products) {
   if (!products || products.length === 0) return [];
 
   const productIds = products.map(p => p.id);
+  if (productIds.length === 0) return [];
 
-  const [images] = await db.query(`
-    SELECT product_id, image_path
-    FROM product_images
-    WHERE product_id IN (${productIds.map(() => '?').join(',')})
-  `, productIds);
+  const [images] = await db.query(
+    `SELECT product_id, image_path FROM product_images WHERE product_id IN (${productIds.map(() => "?").join(",")})`,
+    productIds
+  );
 
   const imageMap = {};
   images.forEach(img => {
@@ -29,15 +43,16 @@ async function formatProductsWithImages(products) {
 
   return products.map(prod => {
     const imagePaths = imageMap[prod.id] || [];
-    const image_urls = imagePaths.map(p => p.startsWith('http') ? p : `${CLOUD_BASE_URL}${p}`);
+    const image_urls = imagePaths.map(p => p.startsWith("http") ? p : `${CLOUD_BASE_URL}${p}`);
     return { ...prod, images: imagePaths, image_urls };
   });
 }
 
 // GET /discover
-router.get("/discover", async (req, res) => {
+router.get("/discover", verifyToken, async (req, res) => {
   try {
-    const { lat, lon, userId } = req.query;
+    const { lat, lon } = req.query;
+    const userId = req.userId;
 
     // Produits récents
     const [recentRaw] = await db.query(`SELECT * FROM products ORDER BY created_at DESC LIMIT 10`);
@@ -78,7 +93,7 @@ router.get("/discover", async (req, res) => {
 
       if (categoriesViewed.length > 0) {
         const categories = categoriesViewed.map(c => c.category);
-        const placeholders = categories.map(() => '?').join(',');
+        const placeholders = categories.map(() => "?").join(",");
         const [recoRaw] = await db.query(`
           SELECT * FROM products
           WHERE category IN (${placeholders})
@@ -99,7 +114,16 @@ router.get("/discover", async (req, res) => {
       LIMIT 5
     `);
 
-    res.status(200).json({
+    // Debug console
+    console.log({
+      recent: recent.length,
+      popular: popular.length,
+      featured: featured.length,
+      nearby: nearby.length,
+      recommended: recommended.length
+    });
+
+    res.json({
       recent,
       popular,
       featured,
@@ -109,7 +133,7 @@ router.get("/discover", async (req, res) => {
     });
   } catch (err) {
     console.error("Erreur Discover:", err);
-    res.status(500).json({ message: "Erreur serveur discover." });
+    res.status(500).json({ success: false, message: "Erreur serveur discover" });
   }
 });
 
