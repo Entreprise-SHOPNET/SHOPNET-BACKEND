@@ -1,115 +1,82 @@
 
-// discover.js
-const express = require('express');
-const router = express.Router();
-const db = require('../db'); // ta connexion MySQL
-const authMiddleware = require('../middlewares/authMiddleware');
 
+// routes/discover.js
+const express = require('express');
+const multer = require('multer');
+const path = require('path');
+const router = express.Router();
+const db = require('../db');
+const authMiddleware = require('../middlewares/authMiddleware');
+const cors = require('cors');
+const cloudinary = require('cloudinary').v2;
+
+router.use(cors({
+  origin: [
+    'http://localhost', 
+    'http://100.64.134.89',
+    'https://shopnet-backend.onrender.com'
+  ],
+  methods: ['GET', 'POST', 'PUT', 'DELETE']
+}));
+
+// Configuration Cloudinary
+cloudinary.config({
+  cloud_name: process.env.CLOUD_NAME,
+  api_key: process.env.API_KEY,
+  api_secret: process.env.API_SECRET,
+});
+
+// Route GET /discover pour récupérer les nouveaux produits
 router.get('/discover', authMiddleware, async (req, res) => {
   try {
     const userId = req.userId;
-    const userLat = parseFloat(req.query.lat) || null;
-    const userLon = parseFloat(req.query.lon) || null;
-    const cloudinaryBase = 'https://res.cloudinary.com/<CLOUD_NAME>/image/upload/';
+    const page = parseInt(req.query.page) || 1;
+    const limit = 5;
+    const offset = (page - 1) * limit;
 
-    const formatProduct = (p) => ({
-      id: p.id,
-      title: p.title,
-      price: p.price,
-      image_urls: p.image_urls.length ? p.image_urls : (p.images || []).map(img => img.image_path ? `${cloudinaryBase}${img.image_path}` : ''),
-      description: p.description || null,
-      stock: parseInt(p.stock) || 0,
-      category: p.category || 'autre',
-    });
-
-    // Produits sponsorisés
-    const [featuredRaw] = await db.query(`
-      SELECT p.*, IFNULL(JSON_ARRAYAGG(pi.image_path), JSON_ARRAY()) AS images,
-              IFNULL(JSON_ARRAYAGG(pi.absolute_url), JSON_ARRAY()) AS image_urls
-      FROM products p
-      LEFT JOIN product_images pi ON pi.product_id = p.id
-      WHERE p.is_featured = 1
-      GROUP BY p.id
-      ORDER BY p.created_at DESC
-      LIMIT 5
-    `);
-    const featured = featuredRaw.map(formatProduct);
-
-    // Nouveaux produits
-    const [recentRaw] = await db.query(`
-      SELECT p.*, IFNULL(JSON_ARRAYAGG(pi.image_path), JSON_ARRAY()) AS images,
-              IFNULL(JSON_ARRAYAGG(pi.absolute_url), JSON_ARRAY()) AS image_urls
+    // Récupération des derniers produits
+    const [productsRaw] = await db.query(`
+      SELECT p.*, 
+             IFNULL(JSON_ARRAYAGG(pi.image_path), JSON_ARRAY()) AS images,
+             IFNULL(JSON_ARRAYAGG(pi.absolute_url), JSON_ARRAY()) AS image_urls
       FROM products p
       LEFT JOIN product_images pi ON pi.product_id = p.id
       GROUP BY p.id
       ORDER BY p.created_at DESC
-      LIMIT 5
-    `);
-    const recent = recentRaw.map(formatProduct);
+      LIMIT ? OFFSET ?
+    `, [limit, offset]);
 
-    // Produits populaires (par ventes)
-    const [popularRaw] = await db.query(`
-      SELECT p.*, IFNULL(JSON_ARRAYAGG(pi.image_path), JSON_ARRAY()) AS images,
-              IFNULL(JSON_ARRAYAGG(pi.absolute_url), JSON_ARRAY()) AS image_urls
-      FROM products p
-      LEFT JOIN product_images pi ON pi.product_id = p.id
-      GROUP BY p.id
-      ORDER BY p.sales DESC
-      LIMIT 5
-    `);
-    const popular = popularRaw.map(formatProduct);
-
-    // Produits recommandés (aléatoire pour l’instant)
-    const [recommendedRaw] = await db.query(`
-      SELECT p.*, IFNULL(JSON_ARRAYAGG(pi.image_path), JSON_ARRAY()) AS images,
-              IFNULL(JSON_ARRAYAGG(pi.absolute_url), JSON_ARRAY()) AS image_urls
-      FROM products p
-      LEFT JOIN product_images pi ON pi.product_id = p.id
-      GROUP BY p.id
-      ORDER BY RAND()
-      LIMIT 5
-    `);
-    const recommended = recommendedRaw.map(formatProduct);
-
-    // Produits proches (si lat/lon fournis)
-    let nearby = [];
-    if (userLat && userLon) {
-      const [nearbyRaw] = await db.query(`
-        SELECT p.*, IFNULL(JSON_ARRAYAGG(pi.image_path), JSON_ARRAY()) AS images,
-                IFNULL(JSON_ARRAYAGG(pi.absolute_url), JSON_ARRAY()) AS image_urls,
-                (6371 * ACOS(COS(RADIANS(?)) * COS(RADIANS(p.latitude)) *
-                COS(RADIANS(p.longitude) - RADIANS(?)) + SIN(RADIANS(?)) * SIN(RADIANS(p.latitude)))) AS distance
-        FROM products p
-        LEFT JOIN product_images pi ON pi.product_id = p.id
-        WHERE p.latitude IS NOT NULL AND p.longitude IS NOT NULL
-        GROUP BY p.id
-        ORDER BY distance ASC
-        LIMIT 5
-      `, [userLat, userLon, userLat]);
-      nearby = nearbyRaw.map(formatProduct);
+    if (!productsRaw.length) {
+      return res.status(404).json({ success: false, error: 'Produit introuvable' });
     }
 
-    // Catégories tendances
-    const [categoriesRaw] = await db.query(`
-      SELECT category, COUNT(*) AS count
-      FROM products
-      GROUP BY category
-      ORDER BY count DESC
-      LIMIT 10
-    `);
+    const products = productsRaw.map(p => ({
+      id: p.id,
+      title: p.title,
+      description: p.description || null,
+      price: parseFloat(p.price) || 0,
+      stock: parseInt(p.stock) || 0,
+      category: p.category || 'autre',
+      image_urls: p.image_urls.length 
+        ? p.image_urls 
+        : (p.images || []).map(img => cloudinary.url(img)), // génère le lien Cloudinary
+      created_at: p.created_at,
+    }));
+
+    // Total produits pour pagination
+    const [[{ total }]] = await db.query('SELECT COUNT(*) AS total FROM products');
 
     res.json({
       success: true,
-      featured,
-      recent,
-      popular,
-      recommended,
-      nearby,
-      trendingCategories: categoriesRaw,
+      page,
+      pageSize: limit,
+      totalProducts: total,
+      totalPages: Math.ceil(total / limit),
+      products
     });
 
   } catch (err) {
-    console.error('Erreur /discover:', err);
+    console.error('Erreur GET /discover:', err);
     res.status(500).json({ success: false, error: 'Erreur serveur' });
   }
 });
