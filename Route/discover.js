@@ -1,82 +1,73 @@
 
-
-// routes/discover.js
 const express = require('express');
-const multer = require('multer');
-const path = require('path');
 const router = express.Router();
 const db = require('../db');
 const authMiddleware = require('../middlewares/authMiddleware');
 const cors = require('cors');
 const cloudinary = require('cloudinary').v2;
 
+// CORS
 router.use(cors({
   origin: [
-    'http://localhost', 
+    'http://localhost',
     'http://100.64.134.89',
     'https://shopnet-backend.onrender.com'
   ],
-  methods: ['GET', 'POST', 'PUT', 'DELETE']
+  methods: ['GET', 'POST']
 }));
 
-// Configuration Cloudinary
+// Config Cloudinary
 cloudinary.config({
   cloud_name: process.env.CLOUD_NAME,
   api_key: process.env.API_KEY,
   api_secret: process.env.API_SECRET,
 });
 
-// Route GET /discover pour récupérer les nouveaux produits
-router.get('/discover', authMiddleware, async (req, res) => {
+// GET /discover?page=1
+router.get('/', authMiddleware, async (req, res) => {
   try {
-    const userId = req.userId;
     const page = parseInt(req.query.page) || 1;
     const limit = 5;
     const offset = (page - 1) * limit;
 
-    // Récupération des derniers produits
-    const [productsRaw] = await db.query(`
-      SELECT p.*, 
-             IFNULL(JSON_ARRAYAGG(pi.image_path), JSON_ARRAY()) AS images,
-             IFNULL(JSON_ARRAYAGG(pi.absolute_url), JSON_ARRAY()) AS image_urls
+    // Récupérer les produits
+    const [products] = await db.query(`
+      SELECT p.*,
+             IFNULL((SELECT JSON_ARRAYAGG(pi.absolute_url) 
+                     FROM product_images pi 
+                     WHERE pi.product_id = p.id), JSON_ARRAY()) AS image_urls
       FROM products p
-      LEFT JOIN product_images pi ON pi.product_id = p.id
-      GROUP BY p.id
       ORDER BY p.created_at DESC
       LIMIT ? OFFSET ?
     `, [limit, offset]);
 
-    if (!productsRaw.length) {
+    if (!products || products.length === 0) {
       return res.status(404).json({ success: false, error: 'Produit introuvable' });
     }
 
-    const products = productsRaw.map(p => ({
+    // Formater les produits
+    const formatted = products.map(p => ({
       id: p.id,
       title: p.title,
-      description: p.description || null,
-      price: parseFloat(p.price) || 0,
-      stock: parseInt(p.stock) || 0,
-      category: p.category || 'autre',
-      image_urls: p.image_urls.length 
-        ? p.image_urls 
-        : (p.images || []).map(img => cloudinary.url(img)), // génère le lien Cloudinary
+      description: p.description,
+      price: parseFloat(p.price),
+      stock: p.stock,
+      category: p.category,
       created_at: p.created_at,
+      image_urls: p.image_urls || []
     }));
-
-    // Total produits pour pagination
-    const [[{ total }]] = await db.query('SELECT COUNT(*) AS total FROM products');
 
     res.json({
       success: true,
       page,
       pageSize: limit,
-      totalProducts: total,
-      totalPages: Math.ceil(total / limit),
-      products
+      totalProducts: formatted.length,
+      totalPages: Math.ceil(formatted.length / limit),
+      products: formatted
     });
 
   } catch (err) {
-    console.error('Erreur GET /discover:', err);
+    console.error('Erreur /discover:', err.message);
     res.status(500).json({ success: false, error: 'Erreur serveur' });
   }
 });
