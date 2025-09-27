@@ -3,26 +3,25 @@
 const express = require('express');
 const router = express.Router();
 const cloudinary = require('cloudinary').v2;
-const authMiddleware = require('../middlewares/authMiddleware');
 
-// Configure Cloudinary
+// Config Cloudinary
 cloudinary.config({
   cloud_name: process.env.CLOUD_NAME,
   api_key: process.env.API_KEY,
   api_secret: process.env.API_SECRET,
 });
 
-// Pagination: page par défaut = 1, limit = 5
-router.get('/all', authMiddleware, async (req, res) => {
+// GET /discover/all?page=1
+router.get('/all', async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
     const limit = 5;
 
-    // Récupère toutes les images Cloudinary
+    // Récupère les images depuis Cloudinary
     const cloudResult = await cloudinary.api.resources({
       type: 'upload',
-      max_results: 500, // max autorisé par Cloudinary par appel
-      prefix: 'products/', // si tes images sont sous un dossier "products"
+      max_results: 500,
+      prefix: 'products/' // si tes images sont sous dossier "products"
     });
 
     const allImages = cloudResult.resources.map(img => ({
@@ -33,11 +32,14 @@ router.get('/all', authMiddleware, async (req, res) => {
       image_url: img.secure_url
     }));
 
-    // Pagination
     const total = allImages.length;
     const totalPages = Math.ceil(total / limit);
     const offset = (page - 1) * limit;
     const products = allImages.slice(offset, offset + limit);
+
+    if (!products.length) {
+      return res.status(404).json({ success: false, error: 'Produit introuvable' });
+    }
 
     res.json({
       success: true,
@@ -47,8 +49,8 @@ router.get('/all', authMiddleware, async (req, res) => {
       totalPages,
       products
     });
-  } catch (error) {
-    console.error('Erreur Discover Cloudinary:', error);
+  } catch (err) {
+    console.error('Erreur Discover Cloudinary:', err);
     res.status(500).json({ success: false, error: 'Erreur serveur' });
   }
 });
