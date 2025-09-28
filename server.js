@@ -165,6 +165,7 @@ const sellersRoutes = require('./Route/Profile/publicSellerProfile'); // Route p
 const discoverRoute = require('./Route/discover');   // ROUTE POUR VOIR LES PRODUIT DECOUVRIR
 const statistiquesRoute = require('./Route/Profile/statistiques');
 const uploadCloudinaryRoute = require('./Route/uploadCloudinary');
+const editProduitsRoute = require('./Route/vendeur/EditProduits');
 
 
 app.use('/api/products', productsRoutes);       // d'abord le routeur principal des produits
@@ -184,6 +185,7 @@ app.use('/api/products', commentsRoutes); // ✅ COMMENTAIRES PRODUITS
 app.use('/api', sellersRoutes);   // Route pour voir les infos de vendeurs
 app.use('/api/Profile/statistiques', statistiquesRoute);  // Route pour les statistic
 app.use('/api/upload', uploadCloudinaryRoute);
+app.use('/api/products', editProduitsRoute);
 
 
 app.get('/health', (req, res) => {
