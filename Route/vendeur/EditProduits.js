@@ -4,6 +4,7 @@
 const express = require('express');
 const router = express.Router();
 const authMiddleware = require('../../middlewares/authMiddleware');
+
 // Catégories autorisées (reprend ton frontend)
 const ALLOWED_CATEGORIES = ["Tendance", "Mode", "Tech", "Maison", "Beauté"];
 
@@ -33,14 +34,14 @@ router.put('/:id', authMiddleware, async (req, res, next) => {
     }
 
     // Vérifier que le produit existe
-    const [rows] = await db.execute('SELECT id, vendor_id FROM products WHERE id = ?', [productId]);
+    const [rows] = await db.execute('SELECT id, seller_id FROM products WHERE id = ?', [productId]);
     if (rows.length === 0) {
       return res.status(404).json({ success: false, message: 'Produit non trouvé' });
     }
     const product = rows[0];
 
-    // Vérifier l'appartenance (si ta table contient vendor_id)
-    if (product.vendor_id && String(product.vendor_id) !== String(userId)) {
+    // Vérifier l'appartenance
+    if (String(product.seller_id) !== String(userId)) {
       return res.status(403).json({ success: false, message: 'Accès refusé : vous ne possédez pas ce produit' });
     }
 
@@ -58,11 +59,12 @@ router.put('/:id', authMiddleware, async (req, res, next) => {
 
     // Récupérer le produit mis à jour
     const [updatedRows] = await db.execute(
-      'SELECT id, title, description, price, category, vendor_id, updated_at FROM products WHERE id = ?',
+      'SELECT id, title, description, price, category, seller_id, updated_at FROM products WHERE id = ?',
       [productId]
     );
 
     return res.status(200).json({ success: true, message: 'Produit mis à jour', product: updatedRows[0] });
+
   } catch (err) {
     console.error('Erreur PUT /products/:id', err);
     next(err);
