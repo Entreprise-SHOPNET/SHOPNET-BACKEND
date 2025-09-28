@@ -3,8 +3,7 @@
 // Route/productsUpdate.js
 const express = require('express');
 const router = express.Router();
-const authMiddleware = require('../middleware/authMiddleware'); // adapte le chemin si nécessaire
-
+const authMiddleware = require('../../middlewares/authMiddleware');
 // Catégories autorisées (reprend ton frontend)
 const ALLOWED_CATEGORIES = ["Tendance", "Mode", "Tech", "Maison", "Beauté"];
 
