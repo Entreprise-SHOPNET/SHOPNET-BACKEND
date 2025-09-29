@@ -1,5 +1,6 @@
 
 // routes/profile/statistiques.js
+// routes/profile/statistiques.js
 
 const express = require('express');
 const router = express.Router();
@@ -18,7 +19,7 @@ router.get('/', authMiddleware, async (req, res) => {
   }
 
   try {
-    // 1. Total produits vendus + revenu total (toutes périodes)
+    // 1. Total produits vendus + revenu total
     const [[ventesStats]] = await db.query(
       `
       SELECT 
@@ -47,11 +48,7 @@ router.get('/', authMiddleware, async (req, res) => {
 
     // 3. Nombre total de produits en vente
     const [[produitsStats]] = await db.query(
-      `
-      SELECT COUNT(*) AS total_produits
-      FROM products
-      WHERE seller_id = ?
-    `,
+      `SELECT COUNT(*) AS total_produits FROM products WHERE seller_id = ?`,
       [vendeurId]
     );
 
@@ -120,6 +117,17 @@ router.get('/', authMiddleware, async (req, res) => {
       [vendeurId]
     );
 
+    // 9. Total commentaires
+    const [[commentsStats]] = await db.query(
+      `
+      SELECT COUNT(*) AS total_comments
+      FROM product_comments pc
+      INNER JOIN products p ON pc.product_id = p.id
+      WHERE p.seller_id = ?
+    `,
+      [vendeurId]
+    );
+
     // Construction réponse
     const responsePayload = {
       success: true,
@@ -158,6 +166,7 @@ router.get('/', authMiddleware, async (req, res) => {
         interactions: {
           likes: Number(likesStats.total_likes) || 0,
           partages: Number(sharesStats.total_shares) || 0,
+          commentaires: Number(commentsStats.total_comments) || 0,
         },
       },
     };
