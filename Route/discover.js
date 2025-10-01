@@ -1,13 +1,11 @@
 
 
+// Route /Route/discover.js
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
 
-// ----------------------------
 // GET /api/products/discover
-// Récupère tous les produits avec stats (likes, vues, commentaires) et images Cloudinary
-// ----------------------------
 router.get('/discover', async (req, res) => {
   try {
     const [products] = await db.query(`
@@ -15,29 +13,36 @@ router.get('/discover', async (req, res) => {
         p.id,
         p.title,
         p.price,
-        p.likes_count AS likes,
-        p.views_count AS views,
-        (SELECT COUNT(*) FROM product_comments pc WHERE pc.product_id = p.id) AS comments,
-        IFNULL((SELECT JSON_ARRAYAGG(pi.absolute_url) FROM product_images pi WHERE pi.product_id = p.id), JSON_ARRAY()) AS images
+        IFNULL(
+          (SELECT JSON_ARRAYAGG(pi.absolute_url) 
+           FROM product_images pi 
+           WHERE pi.product_id = p.id), 
+          JSON_ARRAY()
+        ) AS images,
+        (p.likes_count + p.views_count + p.shares_count +
+          (SELECT COUNT(*) FROM product_comments pc WHERE pc.product_id = p.id)
+        ) AS popularity_score
       FROM products p
-      ORDER BY p.likes_count DESC, p.views_count DESC, comments DESC
+      ORDER BY popularity_score DESC
       LIMIT 100
     `);
 
-    // Formatter la réponse
-    const formatted = products.map(p => ({
-      id: p.id,
-      title: p.title,
-      price: parseFloat(p.price),
-      likes: p.likes,
-      views: p.views,
-      comments: p.comments,
-      images: p.images || []
+    // Formater le résultat
+    const formatted = products.map(product => ({
+      id: product.id,
+      title: product.title,
+      price: parseFloat(product.price) || 0,
+      image: product.images[0] || null // Première image uniquement
     }));
 
-    res.json({ success: true, count: formatted.length, products: formatted });
+    res.json({
+      success: true,
+      count: formatted.length,
+      products: formatted
+    });
+
   } catch (error) {
-    console.error('Erreur GET /products/discover:', error.message);
+    console.error('Erreur GET /discover:', error.message);
     res.status(500).json({ success: false, error: 'Erreur serveur' });
   }
 });
