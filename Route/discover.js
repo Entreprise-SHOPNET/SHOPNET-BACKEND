@@ -2,89 +2,82 @@
 
 const express = require('express');
 const router = express.Router();
-const authMiddleware = require('../middlewares/authMiddleware');
 const db = require('../db');
 
-// GET /api/products/discover
-// Récupère les produits "découverte" triés par likes, shares, views, commandes ou ajout au panier
-router.get('/', authMiddleware, async (req, res) => {
+// Utilitaire pour parser JSON en toute sécurité
+const safeJsonParse = (str) => {
   try {
-    const userId = req.userId;
+    return str ? JSON.parse(str) : [];
+  } catch {
+    return [];
+  }
+};
+
+// GET /api/products/discover
+// Récupère tous les produits, avec likes, shares, vues, commentaires et images Cloudinary
+router.get('/discover', async (req, res) => {
+  try {
+    // Pagination
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 50;
     const offset = (page - 1) * limit;
-    const sortBy = req.query.sort_by || 'likes'; // likes, shares, views, orders, cart
-
-    // Mapping des colonnes selon sort_by
-    const sortColumns = {
-      likes: 'p.likes_count',
-      shares: 'p.shares_count',
-      views: 'p.views_count',
-      orders: 'COALESCE(op.orders_count, 0)',
-      cart: 'COALESCE(cp.cart_count, 0)'
-    };
-
-    const orderBy = sortColumns[sortBy] || 'p.likes_count';
 
     // Requête principale
     const [products] = await db.query(`
       SELECT 
-        p.*,
+        p.id,
+        p.title,
+        p.description,
+        p.price,
+        p.original_price,
+        p.category,
+        p.condition,
+        p.stock,
+        p.location,
+        p.created_at,
+        p.updated_at,
+        p.likes_count,
+        p.shares_count,
+        p.views_count,
+        (SELECT COUNT(*) FROM product_comments pc WHERE pc.product_id = p.id) AS comments_count,
         u.id AS seller_id,
         u.fullName AS seller_name,
         u.profile_photo AS seller_avatar,
-        IFNULL((SELECT JSON_ARRAYAGG(pi.absolute_url) FROM product_images pi WHERE pi.product_id = p.id), JSON_ARRAY()) AS images,
-        EXISTS (
-          SELECT 1 FROM product_likes pl WHERE pl.product_id = p.id AND pl.user_id = ?
-        ) AS isLiked,
-        (SELECT COUNT(*) FROM product_comments pc WHERE pc.product_id = p.id) AS comments_count,
-        COALESCE(op.orders_count, 0) AS orders_count,
-        COALESCE(cp.cart_count, 0) AS cart_count
+        IFNULL((SELECT JSON_ARRAYAGG(pi.absolute_url) FROM product_images pi WHERE pi.product_id = p.id), JSON_ARRAY()) AS images
       FROM products p
       LEFT JOIN utilisateurs u ON p.seller_id = u.id
-      LEFT JOIN (
-        SELECT produit_id, COUNT(*) AS orders_count
-        FROM commande_produits
-        GROUP BY produit_id
-      ) op ON op.produit_id = p.id
-      LEFT JOIN (
-        SELECT product_id, COUNT(*) AS cart_count
-        FROM carts
-        GROUP BY product_id
-      ) cp ON cp.product_id = p.id
-      ORDER BY ${orderBy} DESC
+      ORDER BY p.views_count DESC, p.likes_count DESC, p.created_at DESC
       LIMIT ? OFFSET ?
-    `, [userId, limit, offset]);
+    `, [limit, offset]);
 
     // Total pour pagination
     const [[{ total }]] = await db.query('SELECT COUNT(*) AS total FROM products');
 
-    // Formater le résultat
+    // Formatter les données
     const formatted = products.map(product => ({
       id: product.id,
-      title: product.title,
-      description: product.description,
+      title: product.title || "Titre non disponible",
+      description: product.description || "Description non disponible",
       price: parseFloat(product.price) || 0,
       original_price: product.original_price ? parseFloat(product.original_price) : null,
+      category: product.category || null,
+      condition: product.condition || null,
       stock: parseInt(product.stock) || 0,
-      category: product.category,
-      condition: product.condition,
-      location: product.location,
+      location: product.location || null,
       created_at: product.created_at,
       updated_at: product.updated_at,
       likes: product.likes_count || 0,
       shares: product.shares_count || 0,
       views: product.views_count || 0,
-      orders: product.orders_count || 0,
-      cart_adds: product.cart_count || 0,
       comments: product.comments_count || 0,
-      isLiked: Boolean(product.isLiked),
-      images: product.images || [],
+      images: safeJsonParse(product.images),
       seller: {
-        id: product.seller_id?.toString(),
+        id: product.seller_id?.toString() || null,
         name: product.seller_name || "Vendeur inconnu",
         avatar: product.seller_avatar
-          ? (product.seller_avatar.startsWith('http') ? product.seller_avatar : `${req.protocol}://${req.get('host')}${product.seller_avatar}`)
+          ? (product.seller_avatar.startsWith('http')
+              ? product.seller_avatar
+              : `${req.protocol}://${req.get('host')}${product.seller_avatar}`)
           : null
       }
     }));
@@ -100,7 +93,7 @@ router.get('/', authMiddleware, async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Erreur GET /discover:', error.message);
+    console.error('Erreur GET /products/discover:', error);
     res.status(500).json({ success: false, error: 'Erreur serveur' });
   }
 });
