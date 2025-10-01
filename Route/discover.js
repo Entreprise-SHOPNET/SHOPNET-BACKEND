@@ -1,23 +1,18 @@
 
+
+// Route: /Route/discover.js
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
 
-// Utilitaire pour parser JSON safely
-const safeJsonParse = (str) => {
-  try { return str ? JSON.parse(str) : []; }
-  catch { return []; }
-};
-
-// GET /discover?page=1&limit=5
+// GET /api/products?limit=5&page=1
 router.get('/', async (req, res) => {
   try {
-    // Pagination
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 5;
+    const limit = parseInt(req.query.limit) || 10;
     const offset = (page - 1) * limit;
 
-    // Requête principale
+    // Requête principale : récupère tous les produits triés par popularité
     const [products] = await db.query(`
       SELECT 
         p.id,
@@ -26,15 +21,24 @@ router.get('/', async (req, res) => {
         p.likes_count,
         p.shares_count,
         p.views_count,
-        IFNULL((SELECT COUNT(*) FROM product_comments pc WHERE pc.product_id = p.id), 0) AS comments_count,
-        IFNULL((SELECT pi.absolute_url FROM product_images pi WHERE pi.product_id = p.id LIMIT 1), '') AS image
+        (SELECT COUNT(*) FROM product_comments pc WHERE pc.product_id = p.id) AS comments_count,
+        IFNULL((SELECT JSON_ARRAYAGG(pi.absolute_url) FROM product_images pi WHERE pi.product_id = p.id), JSON_ARRAY()) AS images
       FROM products p
-      ORDER BY (p.likes_count + p.shares_count + IFNULL((SELECT COUNT(*) FROM product_comments pc WHERE pc.product_id = p.id),0) + p.views_count) DESC
+      ORDER BY (p.likes_count + p.shares_count + p.views_count + 
+                (SELECT COUNT(*) FROM product_comments pc WHERE pc.product_id = p.id)) DESC
       LIMIT ? OFFSET ?
     `, [limit, offset]);
 
-    // Compter total produits
+    // Compter le total pour pagination
     const [[{ total }]] = await db.query('SELECT COUNT(*) AS total FROM products');
+
+    const formatted = products.map(p => ({
+      id: p.id,
+      title: p.title,
+      price: parseFloat(p.price) || 0,
+      images: p.images || [],
+      popularity: p.likes_count + p.shares_count + p.views_count + p.comments_count
+    }));
 
     res.json({
       success: true,
@@ -42,21 +46,12 @@ router.get('/', async (req, res) => {
       limit,
       total,
       totalPages: Math.ceil(total / limit),
-      count: products.length,
-      products: products.map(p => ({
-        id: p.id,
-        title: p.title,
-        price: parseFloat(p.price),
-        image: p.image || null,
-        likes: p.likes_count || 0,
-        shares: p.shares_count || 0,
-        views: p.views_count || 0,
-        comments: p.comments_count || 0
-      }))
+      count: formatted.length,
+      products: formatted
     });
 
   } catch (err) {
-    console.error('Erreur GET /discover :', err);
+    console.error('Erreur GET /discover:', err.message);
     res.status(500).json({ success: false, error: 'Erreur serveur' });
   }
 });
