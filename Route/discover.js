@@ -2,15 +2,15 @@
 
 // Route/discover.js
 const express = require('express');
-const multer = require('multer'); // si tu veux gérer des fichiers plus tard
-const path = require('path');
+const cors = require('cors');
 const router = express.Router();
 const db = require('../db'); // connexion à la base de données
-const authMiddleware = require('../middlewares/authMiddleware'); // si authentification nécessaire
-const cors = require('cors');
 
-// Autoriser CORS pour toutes les requêtes (optionnel, à adapter)
+// Autoriser CORS
 router.use(cors());
+
+// ✅ Vérification que la route est bien chargée
+console.log("✅ Route /discover chargée");
 
 // ======================
 // Produits populaires - /discover
@@ -35,6 +35,9 @@ router.get('/discover', async (req, res) => {
 
     const sortColumn = validSort[sort_by] || 'p.likes_count';
 
+    // ======================
+    // ⚡ Requête SQL
+    // ======================
     const [products] = await db.query(`
       SELECT 
         p.id, p.title, p.description, p.price, p.original_price, p.category, p.condition, 
@@ -49,6 +52,9 @@ router.get('/discover', async (req, res) => {
       LIMIT ? OFFSET ?
     `, [limitNum, offset]);
 
+    // ======================
+    // Formatage
+    // ======================
     const formatted = products.map(p => ({
       id: p.id,
       title: p.title,
@@ -79,9 +85,10 @@ router.get('/discover', async (req, res) => {
     });
 
   } catch (err) {
-    console.error('Erreur /discover:', err);
+    console.error('❌ Erreur /discover:', err);
     res.status(500).json({ success: false, message: 'Erreur serveur lors de la récupération des produits populaires.' });
   }
 });
 
+// ✅ Export
 module.exports = router;
