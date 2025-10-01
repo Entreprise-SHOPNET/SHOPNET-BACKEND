@@ -147,39 +147,63 @@ router.get('/', async (req, res) => {
 // ======================
 // NOUVEAU ROUTEUR DÉCOUVRIR - Produits populaires
 // ======================
+// ======================
+// NOUVEAU ROUTEUR DÉCOUVRIR - Produits populaires optimisé
+// ======================
 router.get('/discover', async (req, res) => {
   try {
     const userId = req.headers['user-id'] || null; // Optionnel, si connecté
     const { sort_by = 'likes', limit = 20, page = 1 } = req.query;
-    const limitNum = parseInt(limit, 10) || 20;
-    const pageNum = parseInt(page, 10) || 1;
+
+    // Validation des inputs
+    const limitNum = Math.min(Math.max(parseInt(limit, 10) || 20, 1), 100); // max 100
+    const pageNum = Math.max(parseInt(page, 10) || 1, 1);
     const offset = (pageNum - 1) * limitNum;
 
-    // Colonnes valides pour le tri
     const validSort = {
       likes: 'p.likes_count',
       views: 'p.views_count',
-      comments: '(SELECT COUNT(*) FROM product_comments pc WHERE pc.product_id = p.id)',
+      comments: 'comments_count',
       shares: 'p.shares_count',
-      cart: '(SELECT COUNT(*) FROM carts c WHERE c.product_id = p.id)',
-      orders: '(SELECT COUNT(*) FROM commande_produits cp WHERE cp.produit_id = p.id)'
+      cart: 'cart_count',
+      orders: 'orders_count'
     };
-
     const sortColumn = validSort[sort_by] || 'p.likes_count';
 
-    const [products] = await pool.query(`
+    // Requête optimisée avec jointures et total count
+    const [products] = await pool.query(
+      `
       SELECT 
-        p.id, p.title, p.description, p.price, p.original_price, p.category, p.condition, 
+        p.id, p.title, p.description, p.price, p.original_price, p.category, p.condition,
         p.stock, p.location, p.created_at, p.likes_count, p.shares_count, p.views_count,
-        (SELECT COUNT(*) FROM product_comments pc WHERE pc.product_id = p.id) AS comments_count,
-        (SELECT COUNT(*) FROM carts c WHERE c.product_id = p.id) AS cart_count,
-        (SELECT COUNT(*) FROM commande_produits cp WHERE cp.produit_id = p.id) AS orders_count,
-        ${userId ? `EXISTS(SELECT 1 FROM product_likes pl WHERE pl.user_id = ${pool.escape(userId)} AND pl.product_id = p.id) AS isLiked,` : '0 AS isLiked,'}
-        IFNULL((SELECT JSON_ARRAYAGG(pi.absolute_url) FROM product_images pi WHERE pi.product_id = p.id), JSON_ARRAY()) AS images
+        IFNULL(pc.comment_count, 0) AS comments_count,
+        IFNULL(c.cart_count, 0) AS cart_count,
+        IFNULL(op.order_count, 0) AS orders_count,
+        ${userId ? `EXISTS(SELECT 1 FROM product_likes pl WHERE pl.user_id = ? AND pl.product_id = p.id) AS isLiked,` : '0 AS isLiked,'}
+        IFNULL(JSON_ARRAYAGG(pi.absolute_url), JSON_ARRAY()) AS images
       FROM products p
-      ORDER BY ${sortColumn} DESC
+      LEFT JOIN (
+        SELECT product_id, COUNT(*) AS comment_count 
+        FROM product_comments GROUP BY product_id
+      ) pc ON pc.product_id = p.id
+      LEFT JOIN (
+        SELECT product_id, COUNT(*) AS cart_count 
+        FROM carts GROUP BY product_id
+      ) c ON c.product_id = p.id
+      LEFT JOIN (
+        SELECT produit_id, COUNT(*) AS order_count 
+        FROM commande_produits GROUP BY produit_id
+      ) op ON op.produit_id = p.id
+      LEFT JOIN product_images pi ON pi.product_id = p.id
+      GROUP BY p.id
+      ORDER BY ${sortColumn} DESC, p.created_at DESC
       LIMIT ? OFFSET ?
-    `, [limitNum, offset]);
+      `,
+      userId ? [userId, limitNum, offset] : [limitNum, offset]
+    );
+
+    // Total count pour pagination
+    const [[{ total }]] = await pool.query('SELECT COUNT(*) AS total FROM products');
 
     const formatted = products.map(p => ({
       id: p.id,
@@ -199,19 +223,20 @@ router.get('/discover', async (req, res) => {
       inCart: p.cart_count || 0,
       ordered: p.orders_count || 0,
       isLiked: Boolean(p.isLiked),
-      images: p.images || []
+      images: Array.isArray(p.images) ? p.images : JSON.parse(p.images || '[]')
     }));
 
     res.json({
       success: true,
       count: formatted.length,
+      total: total,
       page: pageNum,
       limit: limitNum,
       products: formatted
     });
 
   } catch (err) {
-    console.error('Erreur /discover:', err);
+    console.error('Erreur /discover optimisé:', err);
     res.status(500).json({ success: false, message: 'Erreur serveur lors de la récupération des produits populaires.' });
   }
 });
