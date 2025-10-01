@@ -1,94 +1,108 @@
 
 
-// Route/discover.js
 const express = require('express');
-const cors = require('cors');
 const router = express.Router();
-const db = require('../db'); // connexion à la base de données
+const authMiddleware = require('../middlewares/authMiddleware');
+const db = require('../db');
 
-// Autoriser CORS
-router.use(cors());
-
-// ✅ Vérification que la route est bien chargée
-console.log("✅ Route /discover chargée");
-
-// ======================
-// Produits populaires - /discover
-// ======================
-router.get('/discover', async (req, res) => {
+// GET /api/products/discover
+// Récupère les produits "découverte" triés par likes, shares, views, commandes ou ajout au panier
+router.get('/', authMiddleware, async (req, res) => {
   try {
-    const userId = req.headers['user-id'] || null; // Optionnel
-    const { sort_by = 'likes', limit = 20, page = 1 } = req.query;
-    const limitNum = parseInt(limit, 10) || 20;
-    const pageNum = parseInt(page, 10) || 1;
-    const offset = (pageNum - 1) * limitNum;
+    const userId = req.userId;
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 50;
+    const offset = (page - 1) * limit;
+    const sortBy = req.query.sort_by || 'likes'; // likes, shares, views, orders, cart
 
-    // Colonnes valides pour le tri
-    const validSort = {
+    // Mapping des colonnes selon sort_by
+    const sortColumns = {
       likes: 'p.likes_count',
-      views: 'p.views_count',
-      comments: '(SELECT COUNT(*) FROM product_comments pc WHERE pc.product_id = p.id)',
       shares: 'p.shares_count',
-      cart: '(SELECT COUNT(*) FROM carts c WHERE c.product_id = p.id)',
-      orders: '(SELECT COUNT(*) FROM commande_produits cp WHERE cp.produit_id = p.id)'
+      views: 'p.views_count',
+      orders: 'COALESCE(op.orders_count, 0)',
+      cart: 'COALESCE(cp.cart_count, 0)'
     };
 
-    const sortColumn = validSort[sort_by] || 'p.likes_count';
+    const orderBy = sortColumns[sortBy] || 'p.likes_count';
 
-    // ======================
-    // ⚡ Requête SQL
-    // ======================
+    // Requête principale
     const [products] = await db.query(`
       SELECT 
-        p.id, p.title, p.description, p.price, p.original_price, p.category, p.condition, 
-        p.stock, p.location, p.created_at, p.likes_count, p.shares_count, p.views_count,
+        p.*,
+        u.id AS seller_id,
+        u.fullName AS seller_name,
+        u.profile_photo AS seller_avatar,
+        IFNULL((SELECT JSON_ARRAYAGG(pi.absolute_url) FROM product_images pi WHERE pi.product_id = p.id), JSON_ARRAY()) AS images,
+        EXISTS (
+          SELECT 1 FROM product_likes pl WHERE pl.product_id = p.id AND pl.user_id = ?
+        ) AS isLiked,
         (SELECT COUNT(*) FROM product_comments pc WHERE pc.product_id = p.id) AS comments_count,
-        (SELECT COUNT(*) FROM carts c WHERE c.product_id = p.id) AS cart_count,
-        (SELECT COUNT(*) FROM commande_produits cp WHERE cp.produit_id = p.id) AS orders_count,
-        ${userId ? `EXISTS(SELECT 1 FROM product_likes pl WHERE pl.user_id = ${db.escape(userId)} AND pl.product_id = p.id) AS isLiked,` : '0 AS isLiked,'}
-        IFNULL((SELECT JSON_ARRAYAGG(pi.absolute_url) FROM product_images pi WHERE pi.product_id = p.id), JSON_ARRAY()) AS images
+        COALESCE(op.orders_count, 0) AS orders_count,
+        COALESCE(cp.cart_count, 0) AS cart_count
       FROM products p
-      ORDER BY ${sortColumn} DESC
+      LEFT JOIN utilisateurs u ON p.seller_id = u.id
+      LEFT JOIN (
+        SELECT produit_id, COUNT(*) AS orders_count
+        FROM commande_produits
+        GROUP BY produit_id
+      ) op ON op.produit_id = p.id
+      LEFT JOIN (
+        SELECT product_id, COUNT(*) AS cart_count
+        FROM carts
+        GROUP BY product_id
+      ) cp ON cp.product_id = p.id
+      ORDER BY ${orderBy} DESC
       LIMIT ? OFFSET ?
-    `, [limitNum, offset]);
+    `, [userId, limit, offset]);
 
-    // ======================
-    // Formatage
-    // ======================
-    const formatted = products.map(p => ({
-      id: p.id,
-      title: p.title,
-      description: p.description,
-      price: parseFloat(p.price) || 0,
-      original_price: p.original_price ? parseFloat(p.original_price) : null,
-      category: p.category,
-      condition: p.condition,
-      stock: parseInt(p.stock) || 0,
-      location: p.location,
-      created_at: p.created_at,
-      likes: p.likes_count || 0,
-      shares: p.shares_count || 0,
-      comments: p.comments_count || 0,
-      views: p.views_count || 0,
-      inCart: p.cart_count || 0,
-      ordered: p.orders_count || 0,
-      isLiked: Boolean(p.isLiked),
-      images: p.images || []
+    // Total pour pagination
+    const [[{ total }]] = await db.query('SELECT COUNT(*) AS total FROM products');
+
+    // Formater le résultat
+    const formatted = products.map(product => ({
+      id: product.id,
+      title: product.title,
+      description: product.description,
+      price: parseFloat(product.price) || 0,
+      original_price: product.original_price ? parseFloat(product.original_price) : null,
+      stock: parseInt(product.stock) || 0,
+      category: product.category,
+      condition: product.condition,
+      location: product.location,
+      created_at: product.created_at,
+      updated_at: product.updated_at,
+      likes: product.likes_count || 0,
+      shares: product.shares_count || 0,
+      views: product.views_count || 0,
+      orders: product.orders_count || 0,
+      cart_adds: product.cart_count || 0,
+      comments: product.comments_count || 0,
+      isLiked: Boolean(product.isLiked),
+      images: product.images || [],
+      seller: {
+        id: product.seller_id?.toString(),
+        name: product.seller_name || "Vendeur inconnu",
+        avatar: product.seller_avatar
+          ? (product.seller_avatar.startsWith('http') ? product.seller_avatar : `${req.protocol}://${req.get('host')}${product.seller_avatar}`)
+          : null
+      }
     }));
 
     res.json({
       success: true,
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit),
       count: formatted.length,
-      page: pageNum,
-      limit: limitNum,
       products: formatted
     });
 
-  } catch (err) {
-    console.error('❌ Erreur /discover:', err);
-    res.status(500).json({ success: false, message: 'Erreur serveur lors de la récupération des produits populaires.' });
+  } catch (error) {
+    console.error('Erreur GET /discover:', error.message);
+    res.status(500).json({ success: false, error: 'Erreur serveur' });
   }
 });
 
-// ✅ Export
 module.exports = router;
