@@ -1,43 +1,119 @@
 
 
-// Route: /Route/discover.js
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
+const authMiddleware = require('../middlewares/authMiddleware');
 
-// GET /api/products?limit=5&page=1
-router.get('/', async (req, res) => {
+// 🔧 Petit helper pour JSON (si jamais tu as stocké JSON en DB)
+const safeJsonParse = (str) => {
   try {
+    return str ? JSON.parse(str) : [];
+  } catch {
+    return [];
+  }
+};
+
+/**
+ * GET /api/products/discover
+ * Retourne les produits tendances : likes, vues, partages, ajouts panier, commandes, commentaires
+ */
+router.get('/discover', authMiddleware, async (req, res) => {
+  try {
+    const userId = req.userId;
+
+    // Pagination
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 10;
+    const limit = parseInt(req.query.limit) || 50;
     const offset = (page - 1) * limit;
 
-    // Requête principale : récupère tous les produits triés par popularité
-    const [products] = await db.query(`
+    // 🔥 SQL : calcul du "trend_score"
+    const [rows] = await db.query(`
       SELECT 
-        p.id,
-        p.title,
-        p.price,
-        p.likes_count,
-        p.shares_count,
-        p.views_count,
+        p.*,
+        u.id AS seller_id,
+        u.fullName AS seller_name,
+        u.profile_photo AS seller_avatar,
+
+        -- images
+        IFNULL((SELECT JSON_ARRAYAGG(pi.absolute_url) 
+                FROM product_images pi 
+                WHERE pi.product_id = p.id), JSON_ARRAY()) AS image_urls,
+
+        -- nombre de commentaires
         (SELECT COUNT(*) FROM product_comments pc WHERE pc.product_id = p.id) AS comments_count,
-        IFNULL((SELECT JSON_ARRAYAGG(pi.absolute_url) FROM product_images pi WHERE pi.product_id = p.id), JSON_ARRAY()) AS images
+
+        -- nombre de likes
+        p.likes_count,
+
+        -- nombre de partages
+        p.shares_count,
+
+        -- nombre de vues
+        p.views_count,
+
+        -- nombre d'ajouts au panier
+        (SELECT COUNT(*) FROM carts c WHERE c.product_id = p.id) AS cart_count,
+
+        -- nombre de commandes
+        (SELECT COUNT(*) FROM commande_produits cp WHERE cp.produit_id = p.id) AS orders_count,
+
+        -- est-ce que l’utilisateur actuel a liké ?
+        EXISTS (
+          SELECT 1 FROM product_likes pl 
+          WHERE pl.product_id = p.id AND pl.user_id = ?
+        ) AS isLiked,
+
+        -- Score tendance (pondéré)
+        (
+          (p.likes_count * 2) +
+          (p.shares_count * 3) +
+          (p.views_count * 1) +
+          ((SELECT COUNT(*) FROM carts c WHERE c.product_id = p.id) * 4) +
+          ((SELECT COUNT(*) FROM commande_produits cp WHERE cp.produit_id = p.id) * 5) +
+          ((SELECT COUNT(*) FROM product_comments pc WHERE pc.product_id = p.id) * 2)
+        ) AS trend_score
+
       FROM products p
-      ORDER BY (p.likes_count + p.shares_count + p.views_count + 
-                (SELECT COUNT(*) FROM product_comments pc WHERE pc.product_id = p.id)) DESC
+      LEFT JOIN utilisateurs u ON p.seller_id = u.id
+      ORDER BY trend_score DESC, p.created_at DESC
       LIMIT ? OFFSET ?
-    `, [limit, offset]);
+    `, [userId, limit, offset]);
 
-    // Compter le total pour pagination
-    const [[{ total }]] = await db.query('SELECT COUNT(*) AS total FROM products');
+    // Total produits
+    const [[{ total }]] = await db.query(`SELECT COUNT(*) AS total FROM products`);
 
-    const formatted = products.map(p => ({
-      id: p.id,
-      title: p.title,
-      price: parseFloat(p.price) || 0,
-      images: p.images || [],
-      popularity: p.likes_count + p.shares_count + p.views_count + p.comments_count
+    // Formatage final
+    const formatted = rows.map(product => ({
+      id: product.id,
+      title: product.title ?? "Titre non disponible",
+      description: product.description ?? null,
+      price: parseFloat(product.price) || 0,
+      original_price: product.original_price ? parseFloat(product.original_price) : null,
+      stock: parseInt(product.stock) || 0,
+      category: product.category,
+      condition: product.condition,
+      location: product.location,
+      created_at: product.created_at,
+      updated_at: product.updated_at,
+      likes: product.likes_count || 0,
+      shares: product.shares_count || 0,
+      views: product.views_count || 0,
+      comments: product.comments_count || 0,
+      cart_count: product.cart_count || 0,
+      orders_count: product.orders_count || 0,
+      isLiked: Boolean(product.isLiked),
+      images: safeJsonParse(product.image_urls),
+      seller: {
+        id: product.seller_id?.toString(),
+        name: product.seller_name ?? "Vendeur inconnu",
+        avatar: product.seller_avatar
+          ? (product.seller_avatar.startsWith('http')
+              ? product.seller_avatar
+              : `${req.protocol}://${req.get('host')}${product.seller_avatar}`)
+          : null,
+      },
+      trend_score: product.trend_score
     }));
 
     res.json({
@@ -50,9 +126,9 @@ router.get('/', async (req, res) => {
       products: formatted
     });
 
-  } catch (err) {
-    console.error('Erreur GET /discover:', err.message);
-    res.status(500).json({ success: false, error: 'Erreur serveur' });
+  } catch (error) {
+    console.error("❌ Erreur GET /discover:", error.message);
+    res.status(500).json({ success: false, error: "Erreur serveur" });
   }
 });
 
