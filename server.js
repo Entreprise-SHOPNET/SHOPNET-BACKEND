@@ -180,7 +180,6 @@ const allProductsRoutes = require('./Route/allProducts');
 
 // 🔹 Produits
 app.use('/api/products', productsRoutes);           // CRUD produits
-app.use('/api/products/explore', productsExploreRoutes);
 app.use('/api/products', likesRoutes);              // Likes produits
 app.use('/api/products', shareRoutes);              // Partages produits
 app.use('/api/products', commentsRoutes);           // Commentaires produits
