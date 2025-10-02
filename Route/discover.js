@@ -1,6 +1,6 @@
 
 
-   const express = require('express');
+const express = require('express');
 const router = express.Router();
 const db = require('../db');
 
@@ -13,18 +13,21 @@ const safeJsonParse = (str) => {
   }
 };
 
+// 🔹 Cloudinary base URL
+const CLOUD_NAME = 'dddr7gb6w';
+const CLOUD_FOLDER = 'mode'; // ton dossier sur Cloudinary
+const cloudinaryUrl = (publicId) => `https://res.cloudinary.com/${CLOUD_NAME}/image/upload/${CLOUD_FOLDER}/${publicId}.jpg`;
+
 /**
  * GET /api/products/discover
  * Retourne les produits populaires selon le trend_score global
  */
 router.get('/', async (req, res) => {
   try {
-    // Pagination
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 50;
     const offset = (page - 1) * limit;
 
-    // 🔥 SQL pour récupérer produits avec score tendance
     const [rows] = await db.query(`
       SELECT 
         p.*,
@@ -32,10 +35,10 @@ router.get('/', async (req, res) => {
         u.fullName AS seller_name,
         u.profile_photo AS seller_avatar,
 
-        -- images
-        IFNULL((SELECT JSON_ARRAYAGG(pi.absolute_url) 
+        -- images stockées comme public_id sur Cloudinary
+        IFNULL((SELECT JSON_ARRAYAGG(pi.public_id) 
                 FROM product_images pi 
-                WHERE pi.product_id = p.id), JSON_ARRAY()) AS image_urls,
+                WHERE pi.product_id = p.id), JSON_ARRAY()) AS image_ids,
 
         -- nombre de commentaires
         (SELECT COUNT(*) FROM product_comments pc WHERE pc.product_id = p.id) AS comments_count,
@@ -69,7 +72,6 @@ router.get('/', async (req, res) => {
     // Total produits
     const [[{ total }]] = await db.query(`SELECT COUNT(*) AS total FROM products`);
 
-    // Formatage final
     const formatted = rows.map(product => ({
       id: product.id,
       title: product.title ?? "Titre non disponible",
@@ -88,7 +90,7 @@ router.get('/', async (req, res) => {
       comments: product.comments_count || 0,
       cart_count: product.cart_count || 0,
       orders_count: product.orders_count || 0,
-      images: safeJsonParse(product.image_urls),
+      images: safeJsonParse(product.image_ids).map(id => cloudinaryUrl(id)),
       seller: {
         id: product.seller_id?.toString(),
         name: product.seller_name ?? "Vendeur inconnu",
