@@ -1,23 +1,21 @@
 
 
-// Route: /api/all-products
+// Route: /api/products-discover
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const authMiddleware = require('../middlewares/authMiddleware');
 
-// GET /api/all-products?search=&category=&page=&limit=
+// GET /api/products-discover
 router.get('/', authMiddleware, async (req, res) => {
   try {
     const userId = req.userId;
-    const search = req.query.search?.trim() || '';
-    const category = req.query.category?.trim() || '';
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 50;
     const offset = (page - 1) * limit;
 
-    // Requête principale avec score de popularité
-    let query = `
+    // Requête principale pour récupérer tous les produits avec stats
+    const query = `
       SELECT 
         p.*,
         u.id AS seller_id,
@@ -34,36 +32,17 @@ router.get('/', authMiddleware, async (req, res) => {
         IFNULL((SELECT JSON_ARRAYAGG(pi.absolute_url) FROM product_images pi WHERE pi.product_id = p.id), JSON_ARRAY()) AS images
       FROM products p
       LEFT JOIN utilisateurs u ON p.seller_id = u.id
-      WHERE 1
+      ORDER BY ((likes_count*3) + (shares_count*2) + (comments_count*1.5) + (cart_count*2) + (order_count*5) + views_count) DESC
+      LIMIT ? OFFSET ?
     `;
 
-    const params = [userId];
-
-    if (search) {
-      query += ' AND (p.title LIKE ? OR p.description LIKE ?)';
-      params.push(`%${search}%`, `%${search}%`);
-    }
-
-    if (category) {
-      query += ' AND p.category = ?';
-      params.push(category);
-    }
-
-    // Pagination
-    query += ' ORDER BY ((likes_count*3) + (shares_count*2) + (comments_count*1.5) + (cart_count*2) + (order_count*5) + views_count) DESC';
-    query += ' LIMIT ? OFFSET ?';
-    params.push(limit, offset);
-
+    const params = [userId, limit, offset];
     const [products] = await db.query(query, params);
 
     // Compter le total
-    const [[{ total }]] = await db.query(`SELECT COUNT(*) AS total FROM products WHERE 1 ${search ? `AND (title LIKE ? OR description LIKE ?)` : ''} ${category ? 'AND category = ?' : ''}`, 
-      search && category ? [`%${search}%`,`%${search}%`, category] 
-      : search ? [`%${search}%`,`%${search}%`] 
-      : category ? [category] 
-      : []
-    );
+    const [[{ total }]] = await db.query('SELECT COUNT(*) AS total FROM products');
 
+    // Formater les données pour le frontend
     const formatted = products.map(p => ({
       id: p.id,
       title: p.title,
@@ -106,7 +85,7 @@ router.get('/', authMiddleware, async (req, res) => {
     });
 
   } catch (error) {
-    console.error('Erreur GET /all-products:', error);
+    console.error('Erreur GET /products-discover:', error);
     res.status(500).json({ success: false, error: 'Erreur serveur' });
   }
 });
