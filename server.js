@@ -149,7 +149,11 @@ app.use((req, res, next) => {
 });
 
 // Routes
+// ----------------------
+// IMPORT DES ROUTES
+// ----------------------
 const productsRoutes = require('./Route/products');
+const discoverRoute = require('./Route/discover'); // Produits populaires / découverte
 const authConnexionRoutes = require('./Route/Connexion');
 const authRegisterRoutes = require('./Route/Inscription');
 const cartRoutes = require('./Route/cart');
@@ -157,35 +161,49 @@ const verifyOtpRoute = require('./Route/verifyOtp');
 const userRoutes = require('./Route/vendeur/user');
 const searchRoute = require('./ia_statique/search');
 const commandesRouter = require('./Route/vendeur/commandes');
-const commandesDetailsRouter = require('./Route/vendeur/commandesDetails'); // Détail d'une commande
+const commandesDetailsRouter = require('./Route/vendeur/commandesDetails');
 const likesRoutes = require('./Route/Interactions/likes');
 const shareRoutes = require('./Route/Interactions/share');
-const commentsRoutes = require('./Route/Interactions/comments'); // 💬 COMMENTAIRES
-const sellersRoutes = require('./Route/Profile/publicSellerProfile'); // Route pour voir les infos de vendeurs
-const discoverRoute = require('./Route/discover');   // ROUTE POUR VOIR LES PRODUIT DECOUVRIR
+const commentsRoutes = require('./Route/Interactions/comments');
+const sellersRoutes = require('./Route/Profile/publicSellerProfile');
 const statistiquesRoute = require('./Route/Profile/statistiques');
 const uploadCloudinaryRoute = require('./Route/uploadCloudinary');
 const editProduitsRoute = require('./Route/vendeur/EditProduits');
 
+// ----------------------
+// MONTAGE DES ROUTES
+// ----------------------
 
-app.use('/api/products', productsRoutes);       // d'abord le routeur principal des produits
-app.use('/api/products', discoverRoute);        // après, les routes “discover”
+// 🔹 Produits
+app.use('/api/products', productsRoutes);           // CRUD produits
+app.use('/api/products/discover', discoverRoute);   // Produits populaires
+app.use('/api/products', likesRoutes);              // Likes produits
+app.use('/api/products', shareRoutes);              // Partages produits
+app.use('/api/products', commentsRoutes);           // Commentaires produits
+app.use('/api/products', editProduitsRoute);        // Edition produits
+
+// 🔹 Authentification
 app.use('/api/auth', authConnexionRoutes);
 app.use('/api/auth', authRegisterRoutes);
+
+// 🔹 Panier et commandes
 app.use('/api/cart', cartRoutes);
+app.use('/api/commandes', commandesRouter);
+app.use('/api/commandes', commandesDetailsRouter);
+
+// 🔹 Utilisateurs & profils
+app.use('/api/user', userRoutes);
+app.use('/api', sellersRoutes);                     // Infos publiques vendeurs
+app.use('/api/Profile/statistiques', statistiquesRoute);
+
+// 🔹 Outils et recherche
 app.use('/api', verifyOtpRoute);
 app.use('/api/search', searchRoute);
-app.use('/api/user', userRoutes);
-app.use('/api/commandes', commandesRouter);
-app.use('/api/commandes', commandesDetailsRouter)
-app.use('/api/products', likesRoutes);
-app.use('/api/products', shareRoutes);
-app.use('/api/interactions', likesRoutes);
-app.use('/api/products', commentsRoutes); // ✅ COMMENTAIRES PRODUITS
-app.use('/api', sellersRoutes);   // Route pour voir les infos de vendeurs
-app.use('/api/Profile/statistiques', statistiquesRoute);  // Route pour les statistic
 app.use('/api/upload', uploadCloudinaryRoute);
-app.use('/api/products', editProduitsRoute);
+
+//------------------------------------------------//
+   //AUTRE MODULES
+//-----------------------------------------------//
 
 
 app.get('/health', (req, res) => {
