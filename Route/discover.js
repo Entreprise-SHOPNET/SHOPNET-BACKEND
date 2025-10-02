@@ -65,10 +65,6 @@ router.get('/', async (req, res) => {
       LIMIT ? OFFSET ?
     `, [limit, offset]);
 
-    if (!rows.length) {
-      return res.status(404).json({ success: false, error: 'Aucun produit trouvé' });
-    }
-
     // Total produits
     const [[{ total }]] = await db.query(`SELECT COUNT(*) AS total FROM products`);
 
