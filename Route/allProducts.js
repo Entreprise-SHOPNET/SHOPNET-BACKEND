@@ -11,10 +11,10 @@ router.get('/', authMiddleware, async (req, res) => {
   try {
     const userId = req.userId;
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 50;
+    const limit = parseInt(req.query.limit) || 8;
     const offset = (page - 1) * limit;
 
-    // Requête principale pour récupérer tous les produits avec stats
+    // Récupérer les produits avec stats et mise en avant
     const query = `
       SELECT 
         p.*,
@@ -32,7 +32,8 @@ router.get('/', authMiddleware, async (req, res) => {
         IFNULL((SELECT JSON_ARRAYAGG(pi.absolute_url) FROM product_images pi WHERE pi.product_id = p.id), JSON_ARRAY()) AS images
       FROM products p
       LEFT JOIN utilisateurs u ON p.seller_id = u.id
-      ORDER BY ((likes_count*3) + (shares_count*2) + (comments_count*1.5) + (cart_count*2) + (order_count*5) + views_count) DESC
+      ORDER BY p.is_featured DESC, 
+               ((likes_count*3) + (shares_count*2) + (comments_count*1.5) + (cart_count*2) + (order_count*5) + views_count) DESC
       LIMIT ? OFFSET ?
     `;
 
@@ -42,7 +43,7 @@ router.get('/', authMiddleware, async (req, res) => {
     // Compter le total
     const [[{ total }]] = await db.query('SELECT COUNT(*) AS total FROM products');
 
-    // Formater les données pour le frontend
+    // Formater les données
     const formatted = products.map(p => ({
       id: p.id,
       title: p.title,
