@@ -1,6 +1,6 @@
 
 
-const express = require('express');
+   const express = require('express');
 const router = express.Router();
 const db = require('../db');
 
@@ -14,9 +14,8 @@ const safeJsonParse = (str) => {
 };
 
 /**
- * GET /
- * Retourne les produits populaires selon un "trend_score" global
- * ⚠️ Attention : le router sera monté sur /api/products/discover dans server.js
+ * GET /api/products/discover
+ * Retourne les produits populaires selon le trend_score global
  */
 router.get('/', async (req, res) => {
   try {
@@ -25,7 +24,7 @@ router.get('/', async (req, res) => {
     const limit = parseInt(req.query.limit) || 50;
     const offset = (page - 1) * limit;
 
-    // 🔥 SQL : calcul du trend_score global
+    // 🔥 SQL pour récupérer produits avec score tendance
     const [rows] = await db.query(`
       SELECT 
         p.*,
@@ -47,7 +46,7 @@ router.get('/', async (req, res) => {
         -- nombre de commandes
         (SELECT COUNT(*) FROM commande_produits cp WHERE cp.produit_id = p.id) AS orders_count,
 
-        -- Score tendance (pondéré)
+        -- Score tendance
         (
           (p.likes_count * 2) +
           (p.shares_count * 3) +
@@ -62,6 +61,10 @@ router.get('/', async (req, res) => {
       ORDER BY trend_score DESC, p.created_at DESC
       LIMIT ? OFFSET ?
     `, [limit, offset]);
+
+    if (!rows.length) {
+      return res.status(404).json({ success: false, error: 'Aucun produit trouvé' });
+    }
 
     // Total produits
     const [[{ total }]] = await db.query(`SELECT COUNT(*) AS total FROM products`);
@@ -109,7 +112,7 @@ router.get('/', async (req, res) => {
     });
 
   } catch (error) {
-    console.error("❌ Erreur GET /discover:", error.message);
+    console.error("❌ Erreur GET /discover:", error);
     res.status(500).json({ success: false, error: "Erreur serveur" });
   }
 });
