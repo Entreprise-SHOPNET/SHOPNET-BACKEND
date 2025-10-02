@@ -14,10 +14,11 @@ const safeJsonParse = (str) => {
 };
 
 /**
- * GET /api/products/discover
+ * GET /
  * Retourne les produits populaires selon un "trend_score" global
+ * ⚠️ Attention : le router sera monté sur /api/products/discover dans server.js
  */
-router.get('/discover', async (req, res) => {
+router.get('/', async (req, res) => {
   try {
     // Pagination
     const page = parseInt(req.query.page) || 1;
