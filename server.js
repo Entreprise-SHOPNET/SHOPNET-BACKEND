@@ -157,7 +157,6 @@ app.use((req, res, next) => {
 // IMPORT DES ROUTES
 // ----------------------
 const productsRoutes = require('./Route/products');
-const discoverRoute = require('./Route/discover'); // Produits populaires / découverte
 const authConnexionRoutes = require('./Route/Connexion');
 const authRegisterRoutes = require('./Route/Inscription');
 const cartRoutes = require('./Route/cart');
@@ -173,14 +172,14 @@ const sellersRoutes = require('./Route/Profile/publicSellerProfile');
 const statistiquesRoute = require('./Route/Profile/statistiques');
 const uploadCloudinaryRoute = require('./Route/uploadCloudinary');
 const editProduitsRoute = require('./Route/vendeur/EditProduits');
-
+const productsExploreRoutes = require('./Route/productsExplore');
 // ----------------------
 // MONTAGE DES ROUTES
 // ----------------------
 
 // 🔹 Produits
 app.use('/api/products', productsRoutes);           // CRUD produits
-app.use('/api/products/discover', discoverRoute);   // Produits populaires
+app.use('/api/products/explore', productsExploreRoutes);
 app.use('/api/products', likesRoutes);              // Likes produits
 app.use('/api/products', shareRoutes);              // Partages produits
 app.use('/api/products', commentsRoutes);           // Commentaires produits
