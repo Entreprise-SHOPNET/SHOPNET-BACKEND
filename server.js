@@ -172,7 +172,8 @@ const sellersRoutes = require('./Route/Profile/publicSellerProfile');
 const statistiquesRoute = require('./Route/Profile/statistiques');
 const uploadCloudinaryRoute = require('./Route/uploadCloudinary');
 const editProduitsRoute = require('./Route/vendeur/EditProduits');
-const productsExploreRoutes = require('./Route/productsExplore');
+const allProductsRoutes = require('./Route/allProducts');
+
 // ----------------------
 // MONTAGE DES ROUTES
 // ----------------------
@@ -203,6 +204,7 @@ app.use('/api/Profile/statistiques', statistiquesRoute);
 app.use('/api', verifyOtpRoute);
 app.use('/api/search', searchRoute);
 app.use('/api/upload', uploadCloudinaryRoute);
+app.use('/api/all-products', allProductsRoutes);
 
 //------------------------------------------------//
    //AUTRE MODULES
