@@ -58,7 +58,6 @@ app.set('notifyVendor', (vendorId, message) => {
   }
 });
 
-
 // Logs
 app.use(morgan('combined', {
   skip: (req, res) => process.env.NODE_ENV === 'test'
@@ -72,12 +71,17 @@ app.use(cors({
   allowedHeaders: ['Content-Type', 'Authorization']
 }));
 
+// Faire confiance au proxy (nécessaire pour express-rate-limit sur Render)
+app.set('trust proxy', 1);
+
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 500,
   message: 'Too many requests from this IP, please try again later'
 });
 app.use('/api/', apiLimiter);
+
+
 
 // Uploads
 const configureUploadsDir = (dirPath) => {
