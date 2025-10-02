@@ -3,9 +3,8 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
-const authMiddleware = require('../middlewares/authMiddleware');
 
-// 🔧 Petit helper pour JSON (si jamais tu as stocké JSON en DB)
+// 🔧 Helper pour parser JSON
 const safeJsonParse = (str) => {
   try {
     return str ? JSON.parse(str) : [];
@@ -16,18 +15,16 @@ const safeJsonParse = (str) => {
 
 /**
  * GET /api/products/discover
- * Retourne les produits tendances : likes, vues, partages, ajouts panier, commandes, commentaires
+ * Retourne les produits populaires selon un "trend_score" global
  */
-router.get('/discover', authMiddleware, async (req, res) => {
+router.get('/discover', async (req, res) => {
   try {
-    const userId = req.userId;
-
     // Pagination
     const page = parseInt(req.query.page) || 1;
     const limit = parseInt(req.query.limit) || 50;
     const offset = (page - 1) * limit;
 
-    // 🔥 SQL : calcul du "trend_score"
+    // 🔥 SQL : calcul du trend_score global
     const [rows] = await db.query(`
       SELECT 
         p.*,
@@ -43,26 +40,11 @@ router.get('/discover', authMiddleware, async (req, res) => {
         -- nombre de commentaires
         (SELECT COUNT(*) FROM product_comments pc WHERE pc.product_id = p.id) AS comments_count,
 
-        -- nombre de likes
-        p.likes_count,
-
-        -- nombre de partages
-        p.shares_count,
-
-        -- nombre de vues
-        p.views_count,
-
         -- nombre d'ajouts au panier
         (SELECT COUNT(*) FROM carts c WHERE c.product_id = p.id) AS cart_count,
 
         -- nombre de commandes
         (SELECT COUNT(*) FROM commande_produits cp WHERE cp.produit_id = p.id) AS orders_count,
-
-        -- est-ce que l’utilisateur actuel a liké ?
-        EXISTS (
-          SELECT 1 FROM product_likes pl 
-          WHERE pl.product_id = p.id AND pl.user_id = ?
-        ) AS isLiked,
 
         -- Score tendance (pondéré)
         (
@@ -78,7 +60,7 @@ router.get('/discover', authMiddleware, async (req, res) => {
       LEFT JOIN utilisateurs u ON p.seller_id = u.id
       ORDER BY trend_score DESC, p.created_at DESC
       LIMIT ? OFFSET ?
-    `, [userId, limit, offset]);
+    `, [limit, offset]);
 
     // Total produits
     const [[{ total }]] = await db.query(`SELECT COUNT(*) AS total FROM products`);
@@ -102,7 +84,6 @@ router.get('/discover', authMiddleware, async (req, res) => {
       comments: product.comments_count || 0,
       cart_count: product.cart_count || 0,
       orders_count: product.orders_count || 0,
-      isLiked: Boolean(product.isLiked),
       images: safeJsonParse(product.image_urls),
       seller: {
         id: product.seller_id?.toString(),
