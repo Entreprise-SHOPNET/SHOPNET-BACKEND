@@ -1,11 +1,10 @@
 
 
-
 const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const transporter = require('../mailer');
+const sendEmail = require('../mailer'); // Nouveau mailer Infobip
 
 function generateOTP() {
   return Math.floor(100000 + Math.random() * 900000).toString();
@@ -15,7 +14,7 @@ router.post('/register', async (req, res) => {
   try {
     const { fullName, email, phone, password, companyName, nif, address } = req.body;
 
-    // Validation des champs
+    // 1️⃣ Validation des champs
     const requiredFields = ['fullName', 'email', 'phone', 'password'];
     const missingFields = requiredFields.filter(field => !req.body[field]);
     if (missingFields.length > 0) {
@@ -25,7 +24,7 @@ router.post('/register', async (req, res) => {
       });
     }
 
-    // Vérification des doublons
+    // 2️⃣ Vérification des doublons
     const [existing] = await req.db.query(
       'SELECT id FROM utilisateurs WHERE email = ? OR phone = ?',
       [email, phone]
@@ -37,12 +36,12 @@ router.post('/register', async (req, res) => {
       });
     }
 
-    // Hashage du mot de passe
+    // 3️⃣ Hashage du mot de passe et génération de l’OTP
     const hashedPassword = await bcrypt.hash(password, 10);
     const otpCode = generateOTP();
     const otpExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
-    // Création de l'utilisateur
+    // 4️⃣ Création de l'utilisateur
     const [result] = await req.db.query('INSERT INTO utilisateurs SET ?', {
       fullName,
       email,
@@ -56,18 +55,13 @@ router.post('/register', async (req, res) => {
       is_verified: false
     });
 
-    // Envoi de l'email avec OTP
-    await transporter.sendMail({
-      from: `"SHOPIA" <${process.env.EMAIL_FROM || 'no-reply@shopia.com'}>`,
-      to: email,
-      subject: 'Votre code de confirmation SHOPIA',
-      html: `
-        <h2>Bienvenue sur SHOPIA, ${fullName} !</h2>
-        <p>Votre code de vérification :</p>
-        <h1 style="color: #4CB050;">${otpCode}</h1>
-        <p><i>Ce code expirera dans 10 minutes.</i></p>
-      `
-    });
+    // 5️⃣ Envoi de l'OTP via Infobip
+    await sendEmail(email, 'Votre code de confirmation SHOPNET', `
+      <h2>Bienvenue sur SHOPNET, ${fullName} !</h2>
+      <p>Votre code de vérification :</p>
+      <h1 style="color: #4CB050;">${otpCode}</h1>
+      <p><i>Ce code expirera dans 10 minutes.</i></p>
+    `);
 
     res.json({
       success: true,
@@ -76,7 +70,7 @@ router.post('/register', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('[ERREUR INSCRIPTION]', error.stack);
+    console.error('[ERREUR INSCRIPTION]', error.response ? error.response.data : error.stack);
     res.status(500).json({
       success: false,
       message: 'Erreur lors de la création du compte'
@@ -88,7 +82,7 @@ router.post('/verify-otp', async (req, res) => {
   try {
     const { userId, otp } = req.body;
 
-    // 1. Vérification de l'OTP
+    // 1️⃣ Vérification de l'OTP
     const [user] = await req.db.query(
       `SELECT id, email, phone FROM utilisateurs 
        WHERE id = ? AND otp_code = ? AND otp_expires_at > NOW()`,
@@ -102,20 +96,16 @@ router.post('/verify-otp', async (req, res) => {
       });
     }
 
-    // 2. Génération d'un NOUVEAU token avec l'ID utilisateur
+    // 2️⃣ Génération d'un token JWT
     const tokenPayload = { 
-      id: user[0].id,  // L'élément crucial qui était manquant
+      id: user[0].id,
       email: user[0].email,
       phone: user[0].phone
     };
     
-    const token = jwt.sign(
-      tokenPayload,
-      process.env.JWT_SECRET,
-      { expiresIn: '7d' }
-    );
+    const token = jwt.sign(tokenPayload, process.env.JWT_SECRET, { expiresIn: '7d' });
 
-    // 3. Mise à jour de l'utilisateur
+    // 3️⃣ Mise à jour de l'utilisateur
     await req.db.query(
       `UPDATE utilisateurs 
        SET otp_code = NULL, 
@@ -125,7 +115,7 @@ router.post('/verify-otp', async (req, res) => {
       [userId]
     );
 
-    // 4. Réponse avec le nouveau token
+    // 4️⃣ Réponse avec le token
     res.json({
       success: true,
       token: token,
@@ -138,7 +128,7 @@ router.post('/verify-otp', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('[ERREUR VERIFICATION OTP]', error.stack);
+    console.error('[ERREUR VERIFICATION OTP]', error.response ? error.response.data : error.stack);
     res.status(500).json({
       success: false,
       message: 'Erreur lors de la vérification'
