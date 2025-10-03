@@ -1,38 +1,42 @@
 
 
-
 require("dotenv").config();
-const axios = require("axios");
+const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
 
 // Infobip configuration
-const INFOSBIP_API_KEY = process.env.INFOSBIP_API_KEY; // Mets ta clé API dans le .env
+const INFOSBIP_API_KEY = process.env.INFOSBIP_API_KEY;
 const INFOSBIP_BASE_URL = process.env.INFOSBIP_BASE_URL || "https://m3nwx6.api.infobip.com";
 
 // Fonction pour envoyer un email via Infobip
 async function sendEmail(toEmail, subject, htmlContent) {
   try {
-    const response = await axios.post(
-      `${INFOSBIP_BASE_URL}/email/3/send`, // Endpoint Infobip pour envoyer un email
-      {
-        from: process.env.EMAIL_FROM || "no-reply@shopnet.com", // Email vérifié sur Infobip
+    const response = await fetch(`${INFOSBIP_BASE_URL}/email/3/send`, {
+      method: "POST",
+      headers: {
+        "Authorization": `App ${INFOSBIP_API_KEY}`,
+        "Content-Type": "application/json",
+        "Accept": "application/json"
+      },
+      body: JSON.stringify({
+        from: process.env.EMAIL_FROM || "no-reply@shopnet.com",
         to: [{ email: toEmail }],
         subject: subject,
         html: htmlContent
-      },
-      {
-        headers: {
-          "Authorization": `App ${INFOSBIP_API_KEY}`,
-          "Content-Type": "application/json",
-          "Accept": "application/json"
-        }
-      }
-    );
+      })
+    });
 
-    return response.data;
+    if (!response.ok) {
+      const errorData = await response.text();
+      console.error("[ERREUR INFOSBIP EMAIL]", errorData);
+      throw new Error(errorData);
+    }
+
+    return await response.json();
   } catch (error) {
-    console.error("[ERREUR INFOSBIP EMAIL]", error.response ? error.response.data : error.message);
+    console.error("[ERREUR INFOSBIP EMAIL]", error.message);
     throw error;
   }
 }
 
 module.exports = sendEmail;
+
