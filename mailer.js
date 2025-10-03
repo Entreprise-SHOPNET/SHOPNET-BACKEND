@@ -1,7 +1,6 @@
 
 
 require("dotenv").config();
-const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
 
 // Infobip configuration
 const INFOSBIP_API_KEY = process.env.INFOSBIP_API_KEY;
