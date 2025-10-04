@@ -13,6 +13,10 @@ const { Server } = require('socket.io');
 
 // Initialisation
 const app = express();
+
+// 🔹 Faire confiance au proxy (Render/Nginx) pour X-Forwarded-For
+app.set('trust proxy', 1);
+
 const server = http.createServer(app);  // 🔥 on passe par http pour brancher io
 
 // Socket.IO
