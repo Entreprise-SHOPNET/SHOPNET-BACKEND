@@ -3,10 +3,10 @@
 require('dotenv').config();
 const Mailjet = require('node-mailjet');
 
-// Nouvelle connexion Mailjet
+// Connexion Mailjet avec les bonnes variables
 const mailjet = Mailjet.apiConnect(
-  process.env.MJ_API_KEY,      // clé publique
-  process.env.MJ_API_SECRET    // clé privée
+  process.env.MAILJET_API_KEY_PUBLIC,
+  process.env.MAILJET_API_KEY_PRIVATE
 );
 
 // Fonction pour envoyer OTP
