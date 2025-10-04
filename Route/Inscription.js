@@ -5,17 +5,22 @@ const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const { sendOTPEmail } = require('../mailer'); // Utiliser la fonction corrigée
+const { sendOTPEmail } = require('../mailer'); // Fonction Mailjet pour envoyer l'OTP
 
+// Fonction pour générer un code OTP à 6 chiffres
 function generateOTP() {
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
 
+/**
+ * Route POST /register
+ * Inscription d'un utilisateur et envoi de l'OTP par email
+ */
 router.post('/register', async (req, res) => {
   try {
     const { fullName, email, phone, password, companyName, nif, address } = req.body;
 
-    // Validation des champs
+    // 1️⃣ Validation des champs obligatoires
     const requiredFields = ['fullName', 'email', 'phone', 'password'];
     const missingFields = requiredFields.filter(field => !req.body[field]);
     if (missingFields.length > 0) {
@@ -25,7 +30,7 @@ router.post('/register', async (req, res) => {
       });
     }
 
-    // Vérification des doublons
+    // 2️⃣ Vérification des doublons (email ou téléphone)
     const [existing] = await req.db.query(
       'SELECT id FROM utilisateurs WHERE email = ? OR phone = ?',
       [email, phone]
@@ -37,12 +42,14 @@ router.post('/register', async (req, res) => {
       });
     }
 
-    // Hashage du mot de passe
+    // 3️⃣ Hashage du mot de passe pour sécurité
     const hashedPassword = await bcrypt.hash(password, 10);
-    const otpCode = generateOTP();
-    const otpExpires = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
 
-    // Création de l'utilisateur
+    // 4️⃣ Génération OTP et date d'expiration (10 minutes)
+    const otpCode = generateOTP();
+    const otpExpires = new Date(Date.now() + 10 * 60 * 1000);
+
+    // 5️⃣ Création de l'utilisateur dans la base de données
     const [result] = await req.db.query('INSERT INTO utilisateurs SET ?', {
       fullName,
       email,
@@ -56,9 +63,10 @@ router.post('/register', async (req, res) => {
       is_verified: false
     });
 
-    // Envoi du mail OTP sans bloquer l'inscription
+    // 6️⃣ Envoi du mail OTP via Mailjet (asynchrone, ne bloque pas l'inscription)
     sendOTPEmail(email, fullName, otpCode);
 
+    // 7️⃣ Réponse côté client
     res.json({
       success: true,
       userId: result.insertId,
@@ -74,11 +82,15 @@ router.post('/register', async (req, res) => {
   }
 });
 
-// Vérification OTP
+/**
+ * Route POST /verify-otp
+ * Vérifie le code OTP et active le compte
+ */
 router.post('/verify-otp', async (req, res) => {
   try {
     const { userId, otp } = req.body;
 
+    // 1️⃣ Vérification que l'OTP correspond et n'est pas expiré
     const [user] = await req.db.query(
       `SELECT id, email, phone FROM utilisateurs 
        WHERE id = ? AND otp_code = ? AND otp_expires_at > NOW()`,
@@ -92,20 +104,15 @@ router.post('/verify-otp', async (req, res) => {
       });
     }
 
-    // Génération du token JWT
+    // 2️⃣ Génération du token JWT
     const tokenPayload = { 
       id: user[0].id,
       email: user[0].email,
       phone: user[0].phone
     };
-    
-    const token = jwt.sign(
-      tokenPayload,
-      process.env.JWT_SECRET,
-      { expiresIn: '7d' }
-    );
+    const token = jwt.sign(tokenPayload, process.env.JWT_SECRET, { expiresIn: '7d' });
 
-    // Mise à jour utilisateur
+    // 3️⃣ Mise à jour de l'utilisateur : OTP effacé et compte vérifié
     await req.db.query(
       `UPDATE utilisateurs 
        SET otp_code = NULL, 
@@ -115,6 +122,7 @@ router.post('/verify-otp', async (req, res) => {
       [userId]
     );
 
+    // 4️⃣ Réponse côté client avec token et info utilisateur
     res.json({
       success: true,
       token: token,
