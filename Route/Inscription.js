@@ -5,7 +5,7 @@ const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const { sendOTPEmail } = require('../mailer'); // version Resend
+const { sendOTPEmail } = require('../mailer'); // version Gmail SMTP
 
 // Génère un OTP à 6 chiffres
 function generateOTP() {
@@ -14,13 +14,13 @@ function generateOTP() {
 
 /**
  * Route POST /register
- * Inscription et envoi OTP
+ * Inscription et envoi OTP via Gmail
  */
 router.post('/register', async (req, res) => {
   try {
     const { fullName, email, phone, password, companyName, nif, address } = req.body;
 
-    // 1️⃣ Validation des champs obligatoires
+    // Validation des champs obligatoires
     const requiredFields = ['fullName', 'email', 'phone', 'password'];
     const missingFields = requiredFields.filter(field => !req.body[field]);
     if (missingFields.length > 0) {
@@ -30,7 +30,7 @@ router.post('/register', async (req, res) => {
       });
     }
 
-    // 2️⃣ Vérification des doublons
+    // Vérification des doublons
     const [existing] = await req.db.query(
       'SELECT id FROM utilisateurs WHERE email = ? OR phone = ?',
       [email, phone]
@@ -42,14 +42,14 @@ router.post('/register', async (req, res) => {
       });
     }
 
-    // 3️⃣ Hashage du mot de passe
+    // Hashage du mot de passe
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // 4️⃣ Génération OTP et expiration
+    // Génération OTP et expiration (10 minutes)
     const otpCode = generateOTP();
     const otpExpires = new Date(Date.now() + 10 * 60 * 1000);
 
-    // 5️⃣ Création de l'utilisateur
+    // Création de l'utilisateur
     const [result] = await req.db.query('INSERT INTO utilisateurs SET ?', {
       fullName,
       email,
@@ -63,13 +63,13 @@ router.post('/register', async (req, res) => {
       is_verified: false
     });
 
-    // 6️⃣ Envoi du mail OTP (asynchrone)
+    // Envoi du mail OTP (asynchrone)
     const emailSent = await sendOTPEmail(email, fullName, otpCode);
     if (!emailSent) {
       console.warn(`[WARN] OTP non envoyé à ${email}`);
     }
 
-    // 7️⃣ Réponse côté client
+    // Réponse côté client
     res.json({
       success: true,
       userId: result.insertId,
@@ -145,7 +145,5 @@ router.post('/verify-otp', async (req, res) => {
     });
   }
 });
-
-module.exports = router;
 
 module.exports = router;
