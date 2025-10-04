@@ -1,16 +1,23 @@
 
 
-require('dotenv').config();
-const { Resend } = require('resend');
 
-// Initialisation de Resend avec la clé de ton .env
-const resend = new Resend(process.env.RESEND_API_KEY);
+require('dotenv').config();
+const nodemailer = require('nodemailer');
+
+// Création du transporteur Gmail avec clé d'application
+const transporter = nodemailer.createTransport({
+  service: 'gmail',
+  auth: {
+    user: process.env.MAIL_USER,      // ton Gmail
+    pass: process.env.MAIL_PASS       // clé d'application (16 caractères)
+  }
+});
 
 // Fonction pour envoyer un OTP par e-mail
 async function sendOTPEmail(to, fullName, otpCode) {
   try {
-    const { data, error } = await resend.emails.send({
-      from: process.env.EMAIL_FROM || 'SHOPIA <noreply@resend.dev>',
+    const mailOptions = {
+      from: process.env.EMAIL_FROM || `SHOPIA <${process.env.MAIL_USER}>`,
       to,
       subject: 'Votre code de confirmation SHOPIA',
       html: `
@@ -22,16 +29,14 @@ async function sendOTPEmail(to, fullName, otpCode) {
             <i>Ce code expirera dans 10 minutes.</i>
           </p>
         </div>
-      `,
-    });
+      `
+    };
 
-    if (error) {
-      console.error('[ERREUR ENVOI OTP]', error);
-      return false;
-    }
-
-    console.log(`[INFO] ✅ OTP envoyé avec succès à ${to}: ${otpCode}`);
+    // Envoi de l'email
+    const info = await transporter.sendMail(mailOptions);
+    console.log(`[INFO] ✅ OTP envoyé à ${to}: ${otpCode}, MessageID: ${info.messageId}`);
     return true;
+
   } catch (err) {
     console.error('[ERREUR EMAIL]', err);
     return false;
