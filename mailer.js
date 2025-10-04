@@ -1,16 +1,21 @@
 
 
 require('dotenv').config();
-const axios = require('axios');
+const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
 
 /**
- * Envoi d’un OTP par e-mail via Brevo (API officielle)
+ * Envoi d’un OTP par e-mail via Brevo (API officielle) en utilisant fetch
  */
 async function sendOTPEmail(to, fullName, otpCode) {
   try {
-    const response = await axios.post(
-      'https://api.brevo.com/v3/smtp/email',
-      {
+    const response = await fetch('https://api.brevo.com/v3/smtp/email', {
+      method: 'POST',
+      headers: {
+        'accept': 'application/json',
+        'api-key': process.env.BREVO_API_KEY,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify({
         sender: {
           name: 'SHOPNET',
           email: process.env.EMAIL_FROM || 'entrepriseshopia@gmail.com',
@@ -27,21 +32,22 @@ async function sendOTPEmail(to, fullName, otpCode) {
             </p>
           </div>
         `,
-      },
-      {
-        headers: {
-          'accept': 'application/json',
-          'api-key': process.env.BREVO_API_KEY,
-          'content-type': 'application/json',
-        },
-        timeout: 15000,
-      }
-    );
+      }),
+      // Timeout manuel pour fetch
+      signal: AbortSignal.timeout(15000),
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json().catch(() => ({}));
+      console.error('[ERREUR EMAIL]', errorData);
+      return false;
+    }
 
     console.log(`[INFO] ✅ Email OTP envoyé à ${to}`);
     return true;
+
   } catch (err) {
-    console.error('[ERREUR EMAIL]', err.response?.data || err.message);
+    console.error('[ERREUR EMAIL]', err.message);
     return false;
   }
 }
