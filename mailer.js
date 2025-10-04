@@ -3,13 +3,13 @@
 require('dotenv').config();
 const Mailjet = require('node-mailjet');
 
-// Connexion à Mailjet avec clé API et clé secrète
+// Nouvelle connexion Mailjet
 const mailjet = Mailjet.apiConnect(
-  process.env.MJ_API_KEY,      // ta clé publique Mailjet
-  process.env.MJ_API_SECRET     // ta clé privée Mailjet
+  process.env.MJ_API_KEY,      // clé publique
+  process.env.MJ_API_SECRET    // clé privée
 );
 
-// Fonction pour envoyer un OTP
+// Fonction pour envoyer OTP
 async function sendOTPEmail(to, fullName, otpCode) {
   try {
     const request = mailjet.post("send", { version: 'v3.1' }).request({
@@ -38,7 +38,6 @@ async function sendOTPEmail(to, fullName, otpCode) {
 
     await request;
     console.log(`[INFO] OTP envoyé à ${to}: ${otpCode}`);
-
   } catch (err) {
     console.error('[ERREUR EMAIL]', err);
   }
