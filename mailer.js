@@ -1,10 +1,17 @@
 
 
 require('dotenv').config();
-const mailjet = require('node-mailjet')
-  .connect(process.env.MJ_APIKEY_PUBLIC, process.env.MJ_APIKEY_PRIVATE);
+const mailjet = require('node-mailjet').connect(
+  process.env.MAILJET_API_KEY_PUBLIC,
+  process.env.MAILJET_API_KEY_PRIVATE
+);
 
-// Fonction pour envoyer l'OTP
+/**
+ * Fonction pour envoyer un OTP à l'utilisateur
+ * @param {string} to - Email du destinataire
+ * @param {string} fullName - Nom complet de l'utilisateur
+ * @param {string} otpCode - Code OTP à envoyer
+ */
 async function sendOTPEmail(to, fullName, otpCode) {
   try {
     const request = mailjet
@@ -13,8 +20,8 @@ async function sendOTPEmail(to, fullName, otpCode) {
         Messages: [
           {
             From: {
-              Email: process.env.MAIL_FROM || 'no-reply@shopia.com',
-              Name: 'SHOPIA'
+              Email: process.env.EMAIL_FROM,
+              Name: "SHOPIA"
             },
             To: [
               {
@@ -22,7 +29,7 @@ async function sendOTPEmail(to, fullName, otpCode) {
                 Name: fullName
               }
             ],
-            Subject: 'Votre code de confirmation SHOPIA',
+            Subject: "Votre code de confirmation SHOPIA",
             HTMLPart: `
               <h2>Bienvenue sur SHOPIA, ${fullName} !</h2>
               <p>Votre code de vérification :</p>
@@ -35,9 +42,9 @@ async function sendOTPEmail(to, fullName, otpCode) {
 
     await request;
     console.log(`[INFO] OTP envoyé à ${to}: ${otpCode}`);
-  } catch (err) {
-    console.error('[ERREUR EMAIL]', err.message);
-    // Ne bloque pas l'inscription si l'email échoue
+  } catch (error) {
+    console.error('[ERREUR EMAIL]', error);
+    // L'inscription continue même si l'email échoue
   }
 }
 
