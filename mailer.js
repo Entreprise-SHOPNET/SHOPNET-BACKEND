@@ -1,11 +1,7 @@
 
-
 require('dotenv').config();
-const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch(...args));
+const fetch = require('node-fetch'); // npm install node-fetch si nécessaire
 
-/**
- * Envoi d’un OTP par e-mail via Brevo (API officielle) en utilisant fetch
- */
 async function sendOTPEmail(to, fullName, otpCode) {
   try {
     const response = await fetch('https://api.brevo.com/v3/smtp/email', {
@@ -33,19 +29,17 @@ async function sendOTPEmail(to, fullName, otpCode) {
           </div>
         `,
       }),
-      // Timeout manuel pour fetch
-      signal: AbortSignal.timeout(15000),
     });
 
+    const data = await response.json();
+
     if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      console.error('[ERREUR EMAIL]', errorData);
+      console.error('[ERREUR EMAIL]', data);
       return false;
     }
 
     console.log(`[INFO] ✅ Email OTP envoyé à ${to}`);
     return true;
-
   } catch (err) {
     console.error('[ERREUR EMAIL]', err.message);
     return false;
