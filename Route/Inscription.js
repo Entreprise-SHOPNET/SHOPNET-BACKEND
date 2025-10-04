@@ -1,13 +1,11 @@
 
 
 
-
-
 const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const transporter = require('../mailer');
+const { sendOTPEmail } = require('../mailer'); // Utiliser la fonction corrigée
 
 function generateOTP() {
   return Math.floor(100000 + Math.random() * 900000).toString();
@@ -58,23 +56,13 @@ router.post('/register', async (req, res) => {
       is_verified: false
     });
 
-    // Envoi de l'email avec OTP
-    await transporter.sendMail({
-      from: `"SHOPIA" <${process.env.EMAIL_FROM || 'no-reply@shopia.com'}>`,
-      to: email,
-      subject: 'Votre code de confirmation SHOPIA',
-      html: `
-        <h2>Bienvenue sur SHOPIA, ${fullName} !</h2>
-        <p>Votre code de vérification :</p>
-        <h1 style="color: #4CB050;">${otpCode}</h1>
-        <p><i>Ce code expirera dans 10 minutes.</i></p>
-      `
-    });
+    // Envoi du mail OTP sans bloquer l'inscription
+    sendOTPEmail(email, fullName, otpCode);
 
     res.json({
       success: true,
       userId: result.insertId,
-      message: 'Un code de vérification a été envoyé à votre email.'
+      message: 'Un code de vérification a été généré et envoyé à votre email.'
     });
 
   } catch (error) {
@@ -86,11 +74,11 @@ router.post('/register', async (req, res) => {
   }
 });
 
+// Vérification OTP
 router.post('/verify-otp', async (req, res) => {
   try {
     const { userId, otp } = req.body;
 
-    // 1. Vérification de l'OTP
     const [user] = await req.db.query(
       `SELECT id, email, phone FROM utilisateurs 
        WHERE id = ? AND otp_code = ? AND otp_expires_at > NOW()`,
@@ -104,9 +92,9 @@ router.post('/verify-otp', async (req, res) => {
       });
     }
 
-    // 2. Génération d'un NOUVEAU token avec l'ID utilisateur
+    // Génération du token JWT
     const tokenPayload = { 
-      id: user[0].id,  // L'élément crucial qui était manquant
+      id: user[0].id,
       email: user[0].email,
       phone: user[0].phone
     };
@@ -117,7 +105,7 @@ router.post('/verify-otp', async (req, res) => {
       { expiresIn: '7d' }
     );
 
-    // 3. Mise à jour de l'utilisateur
+    // Mise à jour utilisateur
     await req.db.query(
       `UPDATE utilisateurs 
        SET otp_code = NULL, 
@@ -127,7 +115,6 @@ router.post('/verify-otp', async (req, res) => {
       [userId]
     );
 
-    // 4. Réponse avec le nouveau token
     res.json({
       success: true,
       token: token,
