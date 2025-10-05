@@ -15,7 +15,7 @@ async function sendOTPEmail(to, fullName, otpCode) {
       body: JSON.stringify({
         sender: {
           name: 'SHOPNET',
-          email: 'entrepriseshopia@gmail.com'
+          email: process.env.EMAIL_FROM
         },
         to: [{ email: to, name: fullName }],
         subject: 'Votre code de confirmation SHOPNET',
