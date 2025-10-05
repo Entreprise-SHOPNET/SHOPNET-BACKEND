@@ -5,35 +5,28 @@ const fetch = (...args) => import('node-fetch').then(({default: fetch}) => fetch
 
 async function sendOTPEmail(to, fullName, otpCode) {
   try {
-    const res = await fetch('https://api.brevo.com/v3/smtp/email', {
+    const res = await fetch('https://api.resend.com/emails', {
       method: 'POST',
       headers: {
-        'accept': 'application/json',
-        'api-key': process.env.BREVO_API_KEY,
-        'content-type': 'application/json'
+        'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
+        'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        sender: {
-          name: 'SHOPNET',
-          email: process.env.EMAIL_FROM
-        },
-        to: [{ email: to, name: fullName }],
+        from: 'SHOPNET <onboarding@resend.dev>', // Pas besoin de domaine
+        to: [to],
         subject: 'Votre code de confirmation SHOPNET',
-        htmlContent: `
+        html: `
           <div style="font-family: Arial, sans-serif; padding: 20px;">
             <h2>Bienvenue sur SHOPNET, ${fullName} !</h2>
             <p>Voici votre code de vérification :</p>
-            <h1>${otpCode}</h1>
+            <h1 style="color: #4CB050;">${otpCode}</h1>
             <p><i>Ce code expirera dans 10 minutes.</i></p>
           </div>
         `
       })
     });
 
-    if (!res.ok) {
-      const errText = await res.text();
-      throw new Error(errText);
-    }
+    if (!res.ok) throw new Error(await res.text());
 
     console.log(`[INFO] ✅ OTP envoyé à ${to}`);
     return true;
