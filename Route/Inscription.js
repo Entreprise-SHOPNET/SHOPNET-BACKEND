@@ -1,11 +1,10 @@
 
 
-
 const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const { sendOTPEmail } = require('../mailer'); // version Gmail SMTP
+const { sendOTPEmail } = require('../mailer'); // version Gmail API HTTPS
 
 // Génère un OTP à 6 chiffres
 function generateOTP() {
@@ -14,7 +13,7 @@ function generateOTP() {
 
 /**
  * Route POST /register
- * Inscription et envoi OTP via Gmail
+ * Inscription et envoi OTP via Gmail API
  */
 router.post('/register', async (req, res) => {
   try {
@@ -63,7 +62,7 @@ router.post('/register', async (req, res) => {
       is_verified: false
     });
 
-    // Envoi du mail OTP (asynchrone)
+    // Envoi du mail OTP (Gmail API HTTPS)
     const emailSent = await sendOTPEmail(email, fullName, otpCode);
     if (!emailSent) {
       console.warn(`[WARN] OTP non envoyé à ${email}`);
