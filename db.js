@@ -1,5 +1,6 @@
 
 
+// db.js
 require('dotenv').config();
 const mysql = require('mysql2/promise');
 const url = require('url');
@@ -21,17 +22,39 @@ const database = params.pathname.replace('/', '');
 const host = params.hostname;
 const port = params.port ? parseInt(params.port) : 3306;
 
-const pool = mysql.createPool({
-  host,
-  user,
-  password,
-  database,
-  port,
-  waitForConnections: true,
-  connectionLimit: 10,
-  queueLimit: 0,
-});
+let pool;
 
+function createPool() {
+  pool = mysql.createPool({
+    host,
+    user,
+    password,
+    database,
+    port,
+    waitForConnections: true,
+    connectionLimit: 10,
+    queueLimit: 0,
+  });
+
+  pool.on('connection', (connection) => {
+    console.log('🔗 Nouvelle connexion MySQL établie');
+  });
+
+  pool.on('error', (err) => {
+    console.error('❌ Erreur MySQL dans le pool:', err);
+    if (err.code === 'PROTOCOL_CONNECTION_LOST' || err.code === 'ETIMEDOUT') {
+      console.log('🔄 Tentative de reconnexion automatique...');
+      createPool();
+    } else {
+      throw err;
+    }
+  });
+}
+
+// Créer le pool initial
+createPool();
+
+// Fonction pour tester la connexion au démarrage
 async function testConnection() {
   let connection;
   try {
@@ -39,12 +62,14 @@ async function testConnection() {
     console.log(`✅ Connecté à MySQL sur ${host}:${port} base "${database}"`);
   } catch (err) {
     console.error('❌ Erreur de connexion MySQL:', err.message);
-    process.exit(1);
+    console.log('🔄 Nouvelle tentative dans 5 secondes...');
+    setTimeout(testConnection, 5000);
   } finally {
     if (connection) connection.release();
   }
 }
 
+// Lancer le test initial
 testConnection();
 
 module.exports = pool;
