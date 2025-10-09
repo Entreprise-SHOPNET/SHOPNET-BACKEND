@@ -1,61 +1,49 @@
 
 
 require('dotenv').config();
-const fs = require('fs');
-const { google } = require('googleapis');
+const nodemailer = require('nodemailer');
 
 /**
- * Envoyer un OTP via Gmail API
+ * Envoyer un OTP via SMTP Gmail
  * @param {string} to - Email du destinataire
  * @param {string} fullName - Nom complet de l'utilisateur
  * @param {string} otpCode - Code OTP
  */
 async function sendOTPEmail(to, fullName, otpCode) {
   try {
-    // Lire les credentials OAuth2
-    const credentials = JSON.parse(fs.readFileSync('./credentials.json'));
-    const token = JSON.parse(fs.readFileSync('./token.json'));
-    const { client_secret, client_id, redirect_uris } = credentials.installed;
-
-    // Configurer l’authentification OAuth2
-    const oAuth2Client = new google.auth.OAuth2(client_id, client_secret, redirect_uris[0]);
-    oAuth2Client.setCredentials(token);
-
-    const gmail = google.gmail({ version: 'v1', auth: oAuth2Client });
-
-    // Construire le message HTML
-    const messageParts = [
-      `To: ${to}`,
-      'Subject: Votre code de confirmation SHOPNET',
-      'Content-Type: text/html; charset=utf-8',
-      '',
-      `<div style="font-family: Arial, sans-serif; padding: 20px;">
-         <h2>Bienvenue sur SHOPNET, ${fullName} !</h2>
-         <p>Voici votre code de vérification :</p>
-         <h1 style="color: #4CB050;">${otpCode}</h1>
-         <p><i>Ce code expirera dans 10 minutes.</i></p>
-       </div>`
-    ];
-
-    const encodedMessage = Buffer.from(messageParts.join('\n'))
-      .toString('base64')
-      .replace(/\+/g, '-')
-      .replace(/\//g, '_')
-      .replace(/=+$/, '');
-
-    // Envoyer l’email
-    await gmail.users.messages.send({
-      userId: 'me',
-      requestBody: { raw: encodedMessage },
+    // Configurer le transporteur SMTP
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: {
+        user: process.env.MAIL_USER,  // ton email Gmail
+        pass: process.env.MAIL_PASS   // clé d'application Google
+      }
     });
 
+    // Construire le mail HTML
+    const mailOptions = {
+      from: process.env.EMAIL_FROM || process.env.MAIL_USER,
+      to,
+      subject: 'Votre code de confirmation SHOPNET',
+      html: `
+        <div style="font-family: Arial, sans-serif; padding: 20px;">
+          <h2>Bienvenue sur SHOPNET, ${fullName} !</h2>
+          <p>Voici votre code de vérification :</p>
+          <h1 style="color: #4CB050;">${otpCode}</h1>
+          <p><i>Ce code expirera dans 10 minutes.</i></p>
+        </div>
+      `
+    };
+
+    // Envoyer le mail
+    await transporter.sendMail(mailOptions);
     console.log(`[INFO] ✅ OTP envoyé à ${to}`);
     return true;
+
   } catch (err) {
     console.error('[ERREUR EMAIL]', err.message);
     return false;
   }
 }
 
-// Exporter la fonction pour les autres fichiers
 module.exports = { sendOTPEmail };
