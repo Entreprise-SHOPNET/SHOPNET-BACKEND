@@ -3,24 +3,20 @@
 require('dotenv').config();
 const nodemailer = require('nodemailer');
 
-/**
- * Envoyer un OTP via SMTP Gmail
- * @param {string} to - Email du destinataire
- * @param {string} fullName - Nom complet de l'utilisateur
- * @param {string} otpCode - Code OTP
- */
 async function sendOTPEmail(to, fullName, otpCode) {
   try {
-    // Configurer le transporteur SMTP
+    // Transporteur SMTP optimisé pour Render
     const transporter = nodemailer.createTransport({
-      service: 'gmail',
+      host: 'smtp.gmail.com',      // SMTP Gmail
+      port: 465,                   // port TLS sécurisé
+      secure: true,                // true = port 465, false = port 587
       auth: {
-        user: process.env.MAIL_USER,  // ton email Gmail
-        pass: process.env.MAIL_PASS   // clé d'application Google
-      }
+        user: process.env.MAIL_USER,
+        pass: process.env.MAIL_PASS
+      },
+      connectionTimeout: 10000      // timeout 10s
     });
 
-    // Construire le mail HTML
     const mailOptions = {
       from: process.env.EMAIL_FROM || process.env.MAIL_USER,
       to,
@@ -35,7 +31,6 @@ async function sendOTPEmail(to, fullName, otpCode) {
       `
     };
 
-    // Envoyer le mail
     await transporter.sendMail(mailOptions);
     console.log(`[INFO] ✅ OTP envoyé à ${to}`);
     return true;
@@ -47,3 +42,4 @@ async function sendOTPEmail(to, fullName, otpCode) {
 }
 
 module.exports = { sendOTPEmail };
+
