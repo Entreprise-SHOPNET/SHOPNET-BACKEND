@@ -5,16 +5,15 @@ const nodemailer = require('nodemailer');
 
 async function sendOTPEmail(to, fullName, otpCode) {
   try {
-    // Transporteur SMTP optimisé pour Render
     const transporter = nodemailer.createTransport({
-      host: 'smtp.gmail.com',      // SMTP Gmail
-      port: 465,                   // port TLS sécurisé
-      secure: true,                // true = port 465, false = port 587
+      host: 'smtp.gmail.com',
+      port: 465,            // TLS sécurisé
+      secure: true,         // true = port 465
       auth: {
         user: process.env.MAIL_USER,
         pass: process.env.MAIL_PASS
       },
-      connectionTimeout: 10000      // timeout 10s
+      connectionTimeout: 10000 // 10s
     });
 
     const mailOptions = {
@@ -42,4 +41,3 @@ async function sendOTPEmail(to, fullName, otpCode) {
 }
 
 module.exports = { sendOTPEmail };
-
