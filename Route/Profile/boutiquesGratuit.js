@@ -3,7 +3,8 @@
 // Route/Profile/boutiquesGratuit.js
 const express = require('express');
 const router = express.Router();
-const authMiddleware = require('../../middleware/authMiddleware');
+const db = require('../../db');
+const authMiddleware = require('../../middlewares/authMiddleware');
 const cloudinary = require('cloudinary').v2;
 
 // Config Cloudinary
