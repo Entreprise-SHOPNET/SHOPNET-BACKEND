@@ -189,7 +189,7 @@ app.use('/api', sellersRoutes);   // Route pour voir les infos de vendeurs
 app.use('/api/Profile/statistiques', statistiquesRoute);  // Route pour les statistic
 app.use('/api/upload', uploadCloudinaryRoute);
 app.use('/api/all-products', allProductsRoutes);
-app.use('/api/boutiquesGratuit', boutiquesGratuitRoutes);
+app.use('/api/boutiques', boutiquesGratuitRoutes);
 
 
 
