@@ -167,6 +167,10 @@ const sellersRoutes = require('./Route/Profile/publicSellerProfile'); // Route p
 const statistiquesRoute = require('./Route/Profile/statistiques');
 const uploadCloudinaryRoute = require('./Route/uploadCloudinary');
 const allProductsRoutes = require('./Route/allProducts');
+const boutiquesGratuitRoutes = require('./Route/Profile/boutiquesGratuit');
+
+
+
 
 app.use('/api/products', productsRoutes);       // d'abord le routeur principal des produits
 app.use('/api/auth', authConnexionRoutes);
@@ -185,6 +189,10 @@ app.use('/api', sellersRoutes);   // Route pour voir les infos de vendeurs
 app.use('/api/Profile/statistiques', statistiquesRoute);  // Route pour les statistic
 app.use('/api/upload', uploadCloudinaryRoute);
 app.use('/api/all-products', allProductsRoutes);
+app.use('/api/boutiquesGratuit', boutiquesGratuitRoutes);
+
+
+
 
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'UP' });
