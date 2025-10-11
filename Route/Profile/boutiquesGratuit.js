@@ -61,13 +61,15 @@ router.post('/create', authMiddleware, async (req, res) => {
 });
 
 // ✅ Route GET : récupérer la boutique de l'utilisateur connecté
+// ✅ Route GET : récupérer la boutique de l'utilisateur connecté
 router.get('/check', authMiddleware, async (req, res) => {
   const db = req.db;
+  const { email, whatsapp } = req.user; // récupéré par authMiddleware
 
   try {
     const [rows] = await db.execute(
-      'SELECT * FROM boutiques WHERE proprietaire = ? OR email = ? OR whatsapp = ? LIMIT 1',
-      [req.user.nom, req.user.email, req.user.whatsapp]
+      'SELECT * FROM boutiques WHERE email = ? OR whatsapp = ? LIMIT 1',
+      [email, whatsapp]
     );
 
     if (rows.length === 0) {
@@ -83,5 +85,6 @@ router.get('/check', authMiddleware, async (req, res) => {
     return res.status(500).json({ success: false, message: 'Erreur serveur lors de la récupération de la boutique.' });
   }
 });
+
 
 module.exports = router;
