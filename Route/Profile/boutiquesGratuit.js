@@ -63,7 +63,7 @@ router.post('/create', authMiddleware, async (req, res) => {
 
 //RECUPERATION DE LA BOUTIQUE----///////////////////////////////
 // ✅ Route GET : récupérer la boutique de l'utilisateur connecté
-router.get('/my-boutique', authMiddleware, async (req, res) => {
+router.get('/check', authMiddleware, async (req, res) => {
   const db = req.db;
   const userId = req.user.id;
 
