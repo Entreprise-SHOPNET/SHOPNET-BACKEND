@@ -2,6 +2,8 @@
 //CREATION DE LA BOURIQUE--------------////////////////////
 // Route/Profile/boutiquesGratuit.js
 // Route/Profile/boutiquesGratuit.js
+
+// Route/Profile/boutiquesGratuit.js
 const express = require('express');
 const router = express.Router();
 const db = require('../../db');
@@ -13,10 +15,11 @@ router.use(express.json({ limit: '10mb' }));
 // ✅ Route POST : créer une boutique gratuite
 router.post('/create', authMiddleware, async (req, res) => {
   const db = req.db;
-  const { nom, proprietaire, email, whatsapp, adresse, categorie, description } = req.body;
+  const userId = req.userId; // ID de l'utilisateur connecté
+  const { nom, email, whatsapp, adresse, categorie, description } = req.body;
 
   // Vérifications de base
-  if (!nom || !proprietaire || !email || !whatsapp || !adresse || !categorie || !description) {
+  if (!nom || !email || !whatsapp || !adresse || !categorie || !description) {
     return res.status(400).json({ success: false, message: 'Tous les champs sont requis.' });
   }
 
@@ -42,11 +45,11 @@ router.post('/create', authMiddleware, async (req, res) => {
       });
     }
 
-    // Insertion dans la base
+    // Insertion dans la base avec proprietaire_id
     const [result] = await db.execute(
-      `INSERT INTO boutiques (nom, proprietaire, email, whatsapp, adresse, categorie, description, type)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'Standard')`,
-      [nom, proprietaire, email, whatsapp, adresse, categorie, description]
+      `INSERT INTO boutiques (nom, proprietaire, email, whatsapp, adresse, categorie, description, type, proprietaire_id)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'Standard', ?)`,
+      [nom, req.userId, email, whatsapp, adresse, categorie, description, userId]
     );
 
     return res.status(201).json({
@@ -61,16 +64,14 @@ router.post('/create', authMiddleware, async (req, res) => {
 });
 
 // ✅ Route GET : récupérer la boutique de l'utilisateur connecté
-// ✅ Route GET : récupérer la boutique de l'utilisateur connecté
-// ✅ Route GET : récupérer la boutique de l'utilisateur connecté
 router.get('/check', authMiddleware, async (req, res) => {
   const db = req.db;
-  const userId = req.userId; // l'ID de l'utilisateur connecté
+  const userId = req.userId; // ID de l'utilisateur connecté
 
   try {
     // On récupère la boutique dont le proprietaire correspond à l'ID de l'utilisateur
     const [rows] = await db.execute(
-      'SELECT * FROM boutiques WHERE proprietaire = ? LIMIT 1',
+      'SELECT * FROM boutiques WHERE proprietaire_id = ? LIMIT 1',
       [userId]
     );
 
@@ -87,8 +88,5 @@ router.get('/check', authMiddleware, async (req, res) => {
     return res.status(500).json({ success: false, message: 'Erreur serveur lors de la récupération de la boutique.' });
   }
 });
-
-
-
 
 module.exports = router;
