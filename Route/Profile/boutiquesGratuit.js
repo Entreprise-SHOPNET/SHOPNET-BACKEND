@@ -1,18 +1,11 @@
 
 
 // Route/Profile/boutiquesGratuit.js
+// Route/Profile/boutiquesGratuit.js
 const express = require('express');
 const router = express.Router();
 const db = require('../../db');
 const authMiddleware = require('../../middlewares/authMiddleware');
-const cloudinary = require('cloudinary').v2;
-
-// Config Cloudinary
-cloudinary.config({
-  cloud_name: process.env.CLOUD_NAME,
-  api_key: process.env.API_KEY,
-  api_secret: process.env.API_SECRET,
-});
 
 // Middleware pour parser JSON
 router.use(express.json({ limit: '10mb' }));
@@ -27,8 +20,7 @@ router.post('/create', authMiddleware, async (req, res) => {
     whatsapp,
     adresse,
     categorie,
-    description,
-    logoUrl
+    description
   } = req.body;
 
   // Vérifications de base
@@ -45,29 +37,17 @@ router.post('/create', authMiddleware, async (req, res) => {
   }
 
   try {
-    let logoCloudUrl = null;
-
-    // Si un logo est fourni, on upload sur Cloudinary
-    if (logoUrl) {
-      const uploadResponse = await cloudinary.uploader.upload(logoUrl, {
-        folder: 'boutiques_standard',
-        resource_type: 'image',
-      });
-      logoCloudUrl = uploadResponse.secure_url;
-    }
-
-    // Insertion dans la base
+    // Insertion dans la base sans logo
     const [result] = await db.execute(
-      `INSERT INTO boutiques (nom, proprietaire, email, whatsapp, adresse, categorie, description, logoUrl, type)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'Standard')`,
-      [nom, proprietaire, email, whatsapp, adresse, categorie, description, logoCloudUrl]
+      `INSERT INTO boutiques (nom, proprietaire, email, whatsapp, adresse, categorie, description, type)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'Standard')`,
+      [nom, proprietaire, email, whatsapp, adresse, categorie, description]
     );
 
     return res.status(201).json({
       success: true,
       message: 'Boutique Standard créée avec succès !',
       boutiqueId: result.insertId,
-      logoUrl: logoCloudUrl,
     });
 
   } catch (err) {
@@ -77,3 +57,4 @@ router.post('/create', authMiddleware, async (req, res) => {
 });
 
 module.exports = router;
+
