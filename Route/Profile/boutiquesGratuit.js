@@ -1,6 +1,7 @@
 
 //CREATION DE LA BOURIQUE--------------////////////////////
 // Route/Profile/boutiquesGratuit.js
+// Route/Profile/boutiquesGratuit.js
 const express = require('express');
 const router = express.Router();
 const db = require('../../db');
@@ -28,7 +29,7 @@ router.post('/create', authMiddleware, async (req, res) => {
   }
 
   try {
-    // ✅ Vérification unicité email et WhatsApp
+    // Vérification unicité email et WhatsApp
     const [existing] = await db.execute(
       "SELECT id FROM boutiques WHERE email = ? OR whatsapp = ?",
       [email, whatsapp]
@@ -37,7 +38,7 @@ router.post('/create', authMiddleware, async (req, res) => {
     if (existing.length > 0) {
       return res.status(400).json({
         success: false,
-        message: 'Une boutique avec cet email ou numéro WhatsApp existe déjà.'
+        message: 'Une boutique avec cet email ou numéro WhatsApp existe déjà.',
       });
     }
 
@@ -53,19 +54,15 @@ router.post('/create', authMiddleware, async (req, res) => {
       message: 'Boutique Standard créée avec succès !',
       boutiqueId: result.insertId,
     });
-
   } catch (err) {
     console.error('Erreur création boutique gratuite :', err);
     return res.status(500).json({ success: false, message: 'Erreur serveur lors de la création de la boutique.' });
   }
 });
 
-
-//RECUPERATION DE LA BOUTIQUE----///////////////////////////////
 // ✅ Route GET : récupérer la boutique de l'utilisateur connecté
 router.get('/check', authMiddleware, async (req, res) => {
   const db = req.db;
-  const userId = req.user.id;
 
   try {
     const [rows] = await db.execute(
@@ -74,7 +71,7 @@ router.get('/check', authMiddleware, async (req, res) => {
     );
 
     if (rows.length === 0) {
-      return res.status(404).json({ success: false, message: "Aucune boutique trouvée pour cet utilisateur." });
+      return res.status(404).json({ success: false, message: 'Aucune boutique trouvée pour cet utilisateur.' });
     }
 
     return res.status(200).json({
@@ -83,7 +80,7 @@ router.get('/check', authMiddleware, async (req, res) => {
     });
   } catch (err) {
     console.error('Erreur récupération boutique :', err);
-    return res.status(500).json({ success: false, message: "Erreur serveur lors de la récupération de la boutique." });
+    return res.status(500).json({ success: false, message: 'Erreur serveur lors de la récupération de la boutique.' });
   }
 });
 
