@@ -1,5 +1,6 @@
 
 
+
 const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
@@ -16,22 +17,23 @@ function generateOTP() {
  */
 router.post('/register', async (req, res) => {
   try {
-    const { fullName, phone, password, companyName, nif, address } = req.body;
+    const { fullName, phone, password, email, companyName, nif, address } = req.body;
 
     // Validation des champs obligatoires
     if (!fullName || !phone || !password) {
       return res.status(400).json({ success: false, message: 'Champs manquants' });
     }
 
-    // Vérification des doublons
+    // Vérification des doublons (phone ou email si fourni)
     const [existing] = await req.db.query(
-      'SELECT id FROM utilisateurs WHERE phone = ?',
-      [phone]
+      `SELECT id FROM utilisateurs 
+       WHERE phone = ? ${email ? 'OR email = ?' : ''}`,
+      email ? [phone, email] : [phone]
     );
     if (existing.length > 0) {
       return res.status(409).json({
         success: false,
-        message: 'Numéro déjà utilisé'
+        message: 'Numéro ou email déjà utilisé'
       });
     }
 
@@ -42,10 +44,11 @@ router.post('/register', async (req, res) => {
     const otpCode = generateOTP();
     const otpExpires = new Date(Date.now() + 10 * 60 * 1000);
 
-    // Création de l'utilisateur
+    // Création de l'utilisateur (email facultatif)
     const [result] = await req.db.query('INSERT INTO utilisateurs SET ?', {
       fullName,
       phone,
+      email: email || null,
       password: hashedPassword,
       companyName: companyName || null,
       nif: nif || null,
@@ -59,7 +62,7 @@ router.post('/register', async (req, res) => {
     res.json({
       success: true,
       userId: result.insertId,
-      otp: otpCode, // à afficher dans l'app
+      otp: otpCode, // à afficher directement dans l'app
       message: 'Votre code OTP est généré et visible dans l’application.'
     });
 
@@ -79,7 +82,7 @@ router.post('/verify-otp', async (req, res) => {
 
     // Vérification OTP
     const [user] = await req.db.query(
-      `SELECT id, phone FROM utilisateurs 
+      `SELECT id, phone, email FROM utilisateurs 
        WHERE id = ? AND otp_code = ? AND otp_expires_at > NOW()`,
       [userId, otp]
     );
@@ -89,7 +92,11 @@ router.post('/verify-otp', async (req, res) => {
     }
 
     // Génération token JWT
-    const token = jwt.sign({ id: user[0].id, phone: user[0].phone }, process.env.JWT_SECRET, { expiresIn: '7d' });
+    const token = jwt.sign(
+      { id: user[0].id, phone: user[0].phone, email: user[0].email },
+      process.env.JWT_SECRET,
+      { expiresIn: '7d' }
+    );
 
     // Mise à jour utilisateur : OTP effacé, compte vérifié
     await req.db.query(
@@ -99,7 +106,11 @@ router.post('/verify-otp', async (req, res) => {
       [userId]
     );
 
-    res.json({ success: true, token, message: 'Compte vérifié avec succès !' });
+    res.json({
+      success: true,
+      token,
+      message: 'Compte vérifié avec succès !'
+    });
 
   } catch (error) {
     console.error('[ERREUR VERIFICATION OTP]', error.stack);
