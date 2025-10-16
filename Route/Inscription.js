@@ -4,7 +4,6 @@ const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const { sendOTPEmail } = require('../mailer'); // version Gmail API HTTPS
 
 // Génère un OTP à 6 chiffres
 function generateOTP() {
@@ -13,31 +12,26 @@ function generateOTP() {
 
 /**
  * Route POST /register
- * Inscription et envoi OTP via Gmail API
+ * Inscription et génération OTP directement pour l'app
  */
 router.post('/register', async (req, res) => {
   try {
-    const { fullName, email, phone, password, companyName, nif, address } = req.body;
+    const { fullName, phone, password, companyName, nif, address } = req.body;
 
     // Validation des champs obligatoires
-    const requiredFields = ['fullName', 'email', 'phone', 'password'];
-    const missingFields = requiredFields.filter(field => !req.body[field]);
-    if (missingFields.length > 0) {
-      return res.status(400).json({ 
-        success: false, 
-        message: `Champs manquants: ${missingFields.join(', ')}` 
-      });
+    if (!fullName || !phone || !password) {
+      return res.status(400).json({ success: false, message: 'Champs manquants' });
     }
 
     // Vérification des doublons
     const [existing] = await req.db.query(
-      'SELECT id FROM utilisateurs WHERE email = ? OR phone = ?',
-      [email, phone]
+      'SELECT id FROM utilisateurs WHERE phone = ?',
+      [phone]
     );
     if (existing.length > 0) {
       return res.status(409).json({
         success: false,
-        message: 'Email ou numéro déjà utilisé'
+        message: 'Numéro déjà utilisé'
       });
     }
 
@@ -51,7 +45,6 @@ router.post('/register', async (req, res) => {
     // Création de l'utilisateur
     const [result] = await req.db.query('INSERT INTO utilisateurs SET ?', {
       fullName,
-      email,
       phone,
       password: hashedPassword,
       companyName: companyName || null,
@@ -62,25 +55,17 @@ router.post('/register', async (req, res) => {
       is_verified: false
     });
 
-    // Envoi du mail OTP (Gmail API HTTPS)
-    const emailSent = await sendOTPEmail(email, fullName, otpCode);
-    if (!emailSent) {
-      console.warn(`[WARN] OTP non envoyé à ${email}`);
-    }
-
-    // Réponse côté client
+    // 🔹 Retourne directement l'OTP dans la réponse (affichage app)
     res.json({
       success: true,
       userId: result.insertId,
-      message: 'Un code de vérification a été généré et envoyé à votre email.'
+      otp: otpCode, // à afficher dans l'app
+      message: 'Votre code OTP est généré et visible dans l’application.'
     });
 
   } catch (error) {
     console.error('[ERREUR INSCRIPTION]', error.stack);
-    res.status(500).json({
-      success: false,
-      message: 'Erreur lors de la création du compte'
-    });
+    res.status(500).json({ success: false, message: 'Erreur lors de la création du compte' });
   }
 });
 
@@ -94,54 +79,31 @@ router.post('/verify-otp', async (req, res) => {
 
     // Vérification OTP
     const [user] = await req.db.query(
-      `SELECT id, email, phone FROM utilisateurs 
+      `SELECT id, phone FROM utilisateurs 
        WHERE id = ? AND otp_code = ? AND otp_expires_at > NOW()`,
       [userId, otp]
     );
 
     if (!user.length) {
-      return res.status(400).json({
-        success: false,
-        message: 'Code OTP invalide ou expiré'
-      });
+      return res.status(400).json({ success: false, message: 'Code OTP invalide ou expiré' });
     }
 
     // Génération token JWT
-    const tokenPayload = { 
-      id: user[0].id,
-      email: user[0].email,
-      phone: user[0].phone
-    };
-    const token = jwt.sign(tokenPayload, process.env.JWT_SECRET, { expiresIn: '7d' });
+    const token = jwt.sign({ id: user[0].id, phone: user[0].phone }, process.env.JWT_SECRET, { expiresIn: '7d' });
 
     // Mise à jour utilisateur : OTP effacé, compte vérifié
     await req.db.query(
       `UPDATE utilisateurs 
-       SET otp_code = NULL, 
-           otp_expires_at = NULL,
-           is_verified = TRUE
+       SET otp_code = NULL, otp_expires_at = NULL, is_verified = TRUE
        WHERE id = ?`,
       [userId]
     );
 
-    // Réponse côté client
-    res.json({
-      success: true,
-      token,
-      message: 'Compte vérifié avec succès !',
-      user: {
-        id: user[0].id,
-        email: user[0].email,
-        phone: user[0].phone
-      }
-    });
+    res.json({ success: true, token, message: 'Compte vérifié avec succès !' });
 
   } catch (error) {
     console.error('[ERREUR VERIFICATION OTP]', error.stack);
-    res.status(500).json({
-      success: false,
-      message: 'Erreur lors de la vérification'
-    });
+    res.status(500).json({ success: false, message: 'Erreur lors de la vérification' });
   }
 });
 
