@@ -168,7 +168,7 @@ const statistiquesRoute = require('./Route/Profile/statistiques');
 const uploadCloudinaryRoute = require('./Route/uploadCloudinary');
 const allProductsRoutes = require('./Route/allProducts');
 const boutiquesGratuitRoutes = require('./Route/Profile/boutiquesGratuit');
-
+const publierProduitsRouter = require('./Route/Boutique/Standard/publierProduits'); //Publier un produits sur la boutique standard  POST GET STANDARD
 
 
 
@@ -190,7 +190,7 @@ app.use('/api/Profile/statistiques', statistiquesRoute);  // Route pour les stat
 app.use('/api/upload', uploadCloudinaryRoute);
 app.use('/api/all-products', allProductsRoutes);
 app.use('/api/boutiques', boutiquesGratuitRoutes);
-
+app.use('/api/boutique/products', publierProduitsRouter); //Publier un produits sur la boutique standard  POST GET STANDARD
 
 
 
