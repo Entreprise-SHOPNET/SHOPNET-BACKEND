@@ -161,4 +161,44 @@ router.get('/', authMiddleware, async (req, res) => {
   }
 });
 
+
+
+
+// ---------------------------
+// GET /me — Récupérer la boutique de l'utilisateur
+// ---------------------------
+router.get('/me', authMiddleware, async (req, res) => {
+  const userId = req.userId;
+  try {
+    const [rows] = await db.query(
+      `SELECT id, nom, proprietaire, email, whatsapp, adresse, categorie, description, type, created_at 
+       FROM boutiques 
+       WHERE proprietaire_id = ? LIMIT 1`,
+      [userId]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: 'Aucune boutique trouvée pour cet utilisateur.'
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      boutique: rows[0]
+    });
+
+  } catch (err) {
+    console.error('Erreur récupération profil boutique :', err);
+    return res.status(500).json({
+      success: false,
+      message: 'Erreur serveur lors de la récupération de la boutique.'
+    });
+  }
+});
+
+
+
+
 module.exports = router;
