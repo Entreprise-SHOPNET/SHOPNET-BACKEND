@@ -4,10 +4,55 @@ const router = express.Router();
 const db = require('../../db');
 const authMiddleware = require('../../middlewares/authMiddleware');
 const multer = require('multer');
-const path = require('path');
-const fs = require('fs');
+const { v2: cloudinary } = require('cloudinary');
+const { CloudinaryStorage } = require('multer-storage-cloudinary');
 
-// --- GET /profile : récupération du profil + statistiques
+// --- CONFIGURATION CLOUDINARY --- //
+// Remplace ces variables par tes propres informations Cloudinary
+cloudinary.config({
+  cloud_name: process.env.CLOUDINARY_CLOUD_NAME,
+  api_key: process.env.CLOUDINARY_API_KEY,
+  api_secret: process.env.CLOUDINARY_API_SECRET,
+});
+
+// --- MULTER STORAGE POUR CLOUDINARY --- //
+const profileStorage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    folder: 'shopnet/profile', // dossier Cloudinary pour les profils
+    allowed_formats: ['jpg', 'jpeg', 'png', 'webp'],
+    transformation: [{ width: 500, height: 500, crop: 'limit' }], // redimension max
+  },
+});
+
+const coverStorage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    folder: 'shopnet/cover', // dossier Cloudinary pour les couvertures
+    allowed_formats: ['jpg', 'jpeg', 'png', 'webp'],
+    transformation: [{ width: 1200, height: 400, crop: 'limit' }], // redimension max
+  },
+});
+
+// --- MULTER UPLOAD --- //
+const uploadProfile = multer({ storage: profileStorage, limits: { fileSize: 5 * 1024 * 1024 } });
+const uploadCover = multer({ storage: coverStorage, limits: { fileSize: 5 * 1024 * 1024 } });
+
+// --- MIDDLEWARE ERREUR MULTER --- //
+function multerErrorHandler(err, req, res, next) {
+  if (err instanceof multer.MulterError) {
+    console.error('Erreur Multer:', err);
+    return res.status(400).json({ success: false, message: `Erreur lors de l’upload : ${err.message}` });
+  } else if (err) {
+    console.error('Erreur upload:', err);
+    return res.status(400).json({ success: false, message: `Erreur lors du traitement du fichier : ${err.message}` });
+  }
+  next();
+}
+
+// --- ROUTES --- //
+
+// GET /profile : récupération du profil + statistiques
 router.get('/profile', authMiddleware, async (req, res) => {
   try {
     const userId = req.userId;
@@ -31,14 +76,13 @@ router.get('/profile', authMiddleware, async (req, res) => {
     }
 
     res.json({ success: true, message: 'Profil récupéré avec succès.', user: rows[0] });
-
   } catch (err) {
-    console.error('Erreur dans GET /profile :', err);
+    console.error('Erreur GET /profile :', err);
     res.status(500).json({ success: false, message: 'Une erreur serveur est survenue lors de la récupération du profil.' });
   }
 });
 
-// --- PUT /profile : mise à jour des informations texte du profil
+// PUT /profile : mise à jour des informations texte du profil
 router.put('/profile', authMiddleware, async (req, res) => {
   try {
     const userId = req.userId;
@@ -52,84 +96,13 @@ router.put('/profile', authMiddleware, async (req, res) => {
     );
 
     res.json({ success: true, message: 'Vos informations de profil ont été mises à jour avec succès !' });
-
   } catch (err) {
     console.error('Erreur PUT /profile :', err);
     res.status(500).json({ success: false, message: 'Impossible de mettre à jour le profil. Veuillez réessayer plus tard.' });
   }
 });
 
-// --- Configuration Multer avec logs d'erreur et vérification des dossiers
-function ensureDirExists(dir) {
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-    console.log(`Dossier créé automatiquement : ${dir}`);
-  }
-}
-
-// Storage profile
-const profileStorage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const dir = 'uploads/profile';
-    ensureDirExists(dir);
-    cb(null, dir);
-  },
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    const filename = `profile_${Date.now()}${ext}`;
-    cb(null, filename);
-  }
-});
-
-// Storage cover
-const coverStorage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const dir = 'uploads/cover';
-    ensureDirExists(dir);
-    cb(null, dir);
-  },
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    const filename = `cover_${Date.now()}${ext}`;
-    cb(null, filename);
-  }
-});
-
-// File filter Multer
-function imageFileFilter(req, file, cb) {
-  const ext = path.extname(file.originalname).toLowerCase();
-  const allowedExt = ['.jpg', '.jpeg', '.png', '.webp'];
-  if (!allowedExt.includes(ext)) {
-    return cb(new Error('Format de fichier non autorisé. Seuls JPG, PNG et WEBP sont acceptés.'));
-  }
-  cb(null, true);
-}
-
-const uploadProfile = multer({
-  storage: profileStorage,
-  fileFilter: imageFileFilter,
-  limits: { fileSize: 5 * 1024 * 1024 } // 5MB max
-});
-
-const uploadCover = multer({
-  storage: coverStorage,
-  fileFilter: imageFileFilter,
-  limits: { fileSize: 5 * 1024 * 1024 } // 5MB max
-});
-
-// Middleware pour gérer erreurs multer
-function multerErrorHandler(err, req, res, next) {
-  if (err instanceof multer.MulterError) {
-    console.error('Erreur Multer:', err);
-    return res.status(400).json({ success: false, message: `Erreur lors de l’upload : ${err.message}` });
-  } else if (err) {
-    console.error('Erreur upload:', err);
-    return res.status(400).json({ success: false, message: `Erreur lors du traitement du fichier : ${err.message}` });
-  }
-  next();
-}
-
-// --- PUT /profile/photo
+// PUT /profile/photo : upload photo de profil sur Cloudinary
 router.put('/profile/photo', authMiddleware, uploadProfile.single('profile_photo'), async (req, res) => {
   try {
     const userId = req.userId;
@@ -138,7 +111,8 @@ router.put('/profile/photo', authMiddleware, uploadProfile.single('profile_photo
       return res.status(400).json({ success: false, message: 'Aucune photo reçue. Veuillez sélectionner une image.' });
     }
 
-    const profilePhotoUrl = `https://shopnet-backend.onrender.com/uploads/profile/${req.file.filename}`;
+    // req.file.path contient l'URL Cloudinary de l'image uploadée
+    const profilePhotoUrl = req.file.path;
 
     await db.execute('UPDATE utilisateurs SET profile_photo = ? WHERE id = ?', [profilePhotoUrl, userId]);
 
@@ -147,14 +121,13 @@ router.put('/profile/photo', authMiddleware, uploadProfile.single('profile_photo
       message: 'Votre photo de profil a été mise à jour avec succès !',
       profile_photo: profilePhotoUrl
     });
-
   } catch (err) {
     console.error('Erreur PUT /profile/photo :', err);
     res.status(500).json({ success: false, message: 'Impossible de mettre à jour la photo de profil. Veuillez réessayer plus tard.' });
   }
 });
 
-// --- PUT /cover/photo
+// PUT /cover/photo : upload photo de couverture sur Cloudinary
 router.put('/cover/photo', authMiddleware, uploadCover.single('cover_photo'), async (req, res) => {
   try {
     const userId = req.userId;
@@ -163,7 +136,8 @@ router.put('/cover/photo', authMiddleware, uploadCover.single('cover_photo'), as
       return res.status(400).json({ success: false, message: 'Aucune photo de couverture reçue. Veuillez sélectionner une image.' });
     }
 
-    const coverPhotoUrl = `https://shopnet-backend.onrender.com/uploads/cover/${req.file.filename}`;
+    // req.file.path contient l'URL Cloudinary de l'image uploadée
+    const coverPhotoUrl = req.file.path;
 
     await db.execute('UPDATE utilisateurs SET cover_photo = ? WHERE id = ?', [coverPhotoUrl, userId]);
 
@@ -172,14 +146,13 @@ router.put('/cover/photo', authMiddleware, uploadCover.single('cover_photo'), as
       message: 'Votre photo de couverture a été mise à jour avec succès !',
       cover_photo: coverPhotoUrl
     });
-
   } catch (err) {
     console.error('Erreur PUT /cover/photo :', err);
     res.status(500).json({ success: false, message: 'Impossible de mettre à jour la photo de couverture. Veuillez réessayer plus tard.' });
   }
 });
 
-// --- GET /my-products : récupérer les produits de l'utilisateur connecté
+// GET /my-products : récupérer les produits de l'utilisateur connecté
 router.get('/my-products', authMiddleware, async (req, res) => {
   try {
     const userId = req.userId;
@@ -205,13 +178,13 @@ router.get('/my-products', authMiddleware, async (req, res) => {
     const productsWithImages = products.map(p => ({ ...p, images: imagesByProduct[p.id] || [] }));
 
     res.json({ success: true, message: 'Produits récupérés avec succès.', products: productsWithImages });
-
   } catch (err) {
     console.error('Erreur GET /my-products :', err);
     res.status(500).json({ success: false, message: 'Impossible de récupérer vos produits pour le moment.' });
   }
 });
 
+// Middleware Multer pour gérer les erreurs
 router.use(multerErrorHandler);
 
 module.exports = router;
