@@ -5,6 +5,14 @@ const authMiddleware = require('../../middlewares/authMiddleware');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const cloudinary = require('cloudinary').v2;
+
+// --- Configuration Cloudinary ---
+cloudinary.config({
+  cloud_name: process.env.CLOUD_NAME,
+  api_key: process.env.API_KEY,
+  api_secret: process.env.API_SECRET,
+});
 
 // --- GET /profile : récupération du profil + statistiques
 router.get('/profile', authMiddleware, async (req, res) => {
@@ -58,197 +66,85 @@ router.put('/profile', authMiddleware, async (req, res) => {
   }
 });
 
-// --- Configuration Multer avec logs d'erreur et vérification des dossiers
-function ensureDirExists(dir) {
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-    console.log(`Dossier créé : ${dir}`);
-  }
-}
-
-// Storage profile
-const profileStorage = multer.diskStorage({
+// --- Configuration Multer ---
+const storage = multer.diskStorage({
   destination: (req, file, cb) => {
-    const dir = 'uploads/profile';
-    ensureDirExists(dir);
+    const dir = 'uploads/temp';
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
     cb(null, dir);
   },
   filename: (req, file, cb) => {
     const ext = path.extname(file.originalname);
-    const filename = `profile_${Date.now()}${ext}`;
-    cb(null, filename);
+    cb(null, `temp_${Date.now()}${ext}`);
   }
 });
 
-// Storage cover
-const coverStorage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const dir = 'uploads/cover';
-    ensureDirExists(dir);
-    cb(null, dir);
-  },
-  filename: (req, file, cb) => {
-    const ext = path.extname(file.originalname);
-    const filename = `cover_${Date.now()}${ext}`;
-    cb(null, filename);
-  }
-});
-
-// File filter Multer
-function imageFileFilter(req, file, cb) {
-  const ext = path.extname(file.originalname).toLowerCase();
-  const allowedExt = ['.jpg', '.jpeg', '.png', '.webp'];
-  if (!allowedExt.includes(ext)) {
-    return cb(new Error('Seuls les formats JPG, PNG et WEBP sont autorisés'));
-  }
-  cb(null, true);
-}
-
-const uploadProfile = multer({
-  storage: profileStorage,
-  fileFilter: imageFileFilter,
-  limits: { fileSize: 5 * 1024 * 1024 }
-});
-
-const uploadCover = multer({
-  storage: coverStorage,
-  fileFilter: imageFileFilter,
-  limits: { fileSize: 5 * 1024 * 1024 }
-});
-
-// Middleware pour gérer erreurs multer
-function multerErrorHandler(err, req, res, next) {
-  if (err instanceof multer.MulterError) {
-    console.error('Erreur Multer:', err);
-    return res.status(400).json({ success: false, message: err.message });
-  } else if (err) {
-    console.error('Erreur upload:', err);
-    return res.status(400).json({ success: false, message: err.message });
-  }
-  next();
-}
-
-// --- PUT /profile/photo
-router.put(
-  '/profile/photo',
-  authMiddleware,
-  uploadProfile.single('profile_photo'),
-  async (req, res) => {
-    try {
-      const userId = req.userId;
-
-      if (!req.file) {
-        console.error('Aucun fichier reçu dans /profile/photo');
-        return res.status(400).json({ success: false, message: 'Aucun fichier reçu' });
-      }
-
-      console.log('Fichier reçu /profile/photo:', req.file);
-
-      const profilePhotoUrl = `https://shopnet-backend.onrender.com/uploads/profile/${req.file.filename}`;
-
-      await db.execute(
-        'UPDATE utilisateurs SET profile_photo = ? WHERE id = ?',
-        [profilePhotoUrl, userId]
-      );
-
-      res.json({
-        success: true,
-        message: 'Photo de profil mise à jour',
-        profile_photo: profilePhotoUrl
-      });
-    } catch (err) {
-      console.error('Erreur PUT /profile/photo :', err);
-      res.status(500).json({ success: false, message: 'Erreur serveur' });
+const upload = multer({
+  storage,
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const allowedExt = ['.jpg', '.jpeg', '.png', '.webp'];
+    if (!allowedExt.includes(path.extname(file.originalname).toLowerCase())) {
+      return cb(new Error('Format d’image non supporté'));
     }
+    cb(null, true);
   }
-);
+});
 
-
-// --- GET /my-products : récupérer les produits de l'utilisateur connecté
-router.get('/my-products', authMiddleware, async (req, res) => {
+// --- PUT /profile/photo (upload Cloudinary) ---
+router.put('/profile/photo', authMiddleware, upload.single('profile_photo'), async (req, res) => {
   try {
     const userId = req.userId;
-     // Récupérer tous les produits du vendeur
-    const [products] = await db.execute(
-      `SELECT id, title, price
-       FROM products
-       WHERE seller_id = ?`,
-      [userId]
-    );
+    if (!req.file) return res.status(400).json({ success: false, message: 'Aucun fichier reçu' });
 
-    if (products.length === 0) {
-      return res.json({ success: true, products: [] });
-    }
-
-    // Récupérer toutes les images des produits de l'utilisateur
-    const productIds = products.map(p => p.id);
-    const [images] = await db.query(
-      `SELECT product_id, absolute_url
-       FROM product_images
-       WHERE product_id IN (?)`,
-      [productIds]
-    );
-
-    // Regrouper les images par product_id
-    const imagesByProduct = {};
-    images.forEach(img => {
-      if (!imagesByProduct[img.product_id]) {
-        imagesByProduct[img.product_id] = [];
-      }
-      imagesByProduct[img.product_id].push(img.absolute_url);
+    const uploadResult = await cloudinary.uploader.upload(req.file.path, {
+      folder: 'shopnet/profile'
     });
 
-    // Ajouter les images à chaque produit
-    const productsWithImages = products.map(p => ({
-      ...p,
-      images: imagesByProduct[p.id] || []
-    }));
+    fs.unlinkSync(req.file.path); // suppression du fichier local
 
-    // Retourner la réponse finale
-    res.json({ success: true, products: productsWithImages });
+    await db.execute('UPDATE utilisateurs SET profile_photo = ? WHERE id = ?', [
+      uploadResult.secure_url,
+      userId
+    ]);
 
+    res.json({
+      success: true,
+      message: 'Photo de profil mise à jour',
+      profile_photo: uploadResult.secure_url
+    });
   } catch (err) {
-    console.error('Erreur GET /my-products :', err);
+    console.error('Erreur PUT /profile/photo :', err);
     res.status(500).json({ success: false, message: 'Erreur serveur' });
   }
 });
 
+// --- PUT /cover/photo (upload Cloudinary) ---
+router.put('/cover/photo', authMiddleware, upload.single('cover_photo'), async (req, res) => {
+  try {
+    const userId = req.userId;
+    if (!req.file) return res.status(400).json({ success: false, message: 'Aucun fichier reçu' });
 
-// --- PUT /cover/photo
-router.put(
-  '/cover/photo',
-  authMiddleware,
-  uploadCover.single('cover_photo'),
-  async (req, res) => {
-    try {
-      const userId = req.userId;
+    const uploadResult = await cloudinary.uploader.upload(req.file.path, {
+      folder: 'shopnet/cover'
+    });
 
-      if (!req.file) {
-        console.error('Aucun fichier reçu dans /cover/photo');
-        return res.status(400).json({ success: false, message: 'Aucun fichier reçu' });
-      }
+    fs.unlinkSync(req.file.path); // suppression du fichier local
 
-      console.log('Fichier reçu /cover/photo:', req.file);
+    await db.execute('UPDATE utilisateurs SET cover_photo = ? WHERE id = ?', [
+      uploadResult.secure_url,
+      userId
+    ]);
 
-      const coverPhotoUrl = `https://shopnet-backend.onrender.com/uploads/cover/${req.file.filename}`;
-
-      await db.execute(
-        'UPDATE utilisateurs SET cover_photo = ? WHERE id = ?',
-        [coverPhotoUrl, userId]
-      );
-
-      res.json({
-        success: true,
-        message: 'Photo de couverture mise à jour',
-        cover_photo: coverPhotoUrl
-      });
-    } catch (err) {
-      console.error('Erreur PUT /cover/photo :', err);
-      res.status(500).json({ success: false, message: 'Erreur serveur' });
-    }
+    res.json({
+      success: true,
+      message: 'Photo de couverture mise à jour',
+      cover_photo: uploadResult.secure_url
+    });
+  } catch (err) {
+    console.error('Erreur PUT /cover/photo :', err);
+    res.status(500).json({ success: false, message: 'Erreur serveur' });
   }
-);
-
-router.use(multerErrorHandler);
+});
 
 module.exports = router;
