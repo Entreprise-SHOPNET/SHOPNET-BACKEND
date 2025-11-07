@@ -4,6 +4,7 @@ const express = require('express');
 const router = express.Router();
 const authMiddleware = require('../../middlewares/authMiddleware');
 const db = require('../../db'); // mysql2 promise pool
+const sendPushNotification = require('../../utils/sendPushNotification'); // ✅ ajout de la fonction push
 
 // POST - Ajouter un commentaire ou réponse
 router.post('/:productId/comment', authMiddleware, async (req, res) => {
@@ -21,10 +22,11 @@ router.post('/:productId/comment', authMiddleware, async (req, res) => {
 
   try {
     // Vérifier existence produit
-    const [productCheck] = await db.query('SELECT id FROM products WHERE id = ?', [productId]);
+    const [productCheck] = await db.query('SELECT id, seller_id FROM products WHERE id = ?', [productId]);
     if (productCheck.length === 0) {
       return res.status(404).json({ success: false, message: 'Produit introuvable.' });
     }
+    const product = productCheck[0]; // récupérer seller_id
 
     // Vérifier existence utilisateur
     const [userCheck] = await db.query('SELECT id FROM utilisateurs WHERE id = ?', [userId]);
@@ -48,6 +50,17 @@ router.post('/:productId/comment', authMiddleware, async (req, res) => {
       'INSERT INTO product_comments (product_id, user_id, parent_id, comment) VALUES (?, ?, ?, ?)',
       [productId, userId, parent_id, comment]
     );
+
+    // 🔔 Notification push au vendeur
+    const [sellerRows] = await db.query('SELECT expoPushToken FROM utilisateurs WHERE id = ?', [product.seller_id]);
+    if (sellerRows.length > 0 && sellerRows[0].expoPushToken) {
+      await sendPushNotification(
+      sellerRows[0].expoPushToken,
+      'Nouveau Commentaire !',
+      `💬 Bravo ! Un utilisateur s'intéresse à votre produit sur SHOPNET. Chaque commentaire est une opportunité d'interaction et de visibilité pour votre boutique !`,
+       { productId }
+      );
+    }
 
     return res.status(200).json({ success: true, message: 'Commentaire ajouté avec succès.' });
   } catch (error) {
