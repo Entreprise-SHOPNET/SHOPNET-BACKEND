@@ -127,10 +127,12 @@ async function sendRandomNotifications() {
 }
 
 function scheduleNextNotification() {
-  const delay = (Math.floor(Math.random() * 10) + 1) * 9000; // entre 9s et 90s
+  // Délai aléatoire entre 10 et 15 minutes
+  const delay = (Math.floor(Math.random() * (15 - 10 + 1)) + 10) * 60 * 1000;
+
   setTimeout(async () => {
     await sendRandomNotifications();
-    scheduleNextNotification();
+    scheduleNextNotification(); // reprogramme la prochaine notification
   }, delay);
 }
 
@@ -240,6 +242,11 @@ const publierProduitsRouter = require('./Route/Boutique/Standard/publierProduits
 const compteurNonLusRoutes = require('./Route/Notifications/compteurNonLus'); //SYSTEME DES NOTIFICATION ENE TEMPS REEL
 const notificationsRoute = require('./Route/Notifications/notificationsRoute'); // ROUTES POUR  RECUPERER TOUTES LE NOTIFICATION 
 const saveExpoTokenRoute = require('./Route/Notifications/saveExpoToken');  //SYSTEME DE NOTIFICATION QUAND L'APPLICATION ET FERMER OU EN ARRIERE PLAN
+const latestRouter = require('./Route/FilDActualite/latest'); /// SYSTEME D AFFICHARGE DE PRODUITS SELONS LES DATE PRODUITS RECENTS
+
+
+
+
 
 app.use('/api/products', productsRoutes);       // d'abord le routeur principal des produits
 app.use('/api/auth', authConnexionRoutes);
@@ -264,7 +271,7 @@ app.use('/api/boutique/products', publierProduitsRouter); //Publier un produits 
 app.use('/api/notifications', compteurNonLusRoutes); //SYSTEME DES NOTIFICATION ENE TEMPS REEL
 app.use('/api/notifications', notificationsRoute);  // ROUTES POUR  RECUPERER TOUTES LE NOTIFICATION 
 app.use('/api', saveExpoTokenRoute);  //SYSTEME DE NOTIFICATION QUAND L'APPLICATION ET FERMER OU EN ARRIERE PLAN
-
+app.use('/api/latest', latestRouter); // chemin exact // SYSTEME D AFFICHARGE DE PRODUITS SELONS LES DATE PRODUITS RECENTS
 
 
 app.get('/health', (req, res) => {

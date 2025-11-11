@@ -62,6 +62,7 @@ router.post('/:productId/like', authenticate, async (req, res) => {
       );
       console.log('🔹 Seller info:', sellerRows);
 
+      
       if (sellerRows.length > 0 && sellerRows[0].expoPushToken) {
         console.log('🔹 Envoi notification au vendeur:', product.seller_id);
         await sendPushNotification(
