@@ -1,3 +1,7 @@
+
+
+
+
 const express = require('express');
 const router = express.Router();
 const db = require('../../db');
@@ -5,6 +9,7 @@ const authMiddleware = require('../../middlewares/authMiddleware');
 const multer = require('multer');
 const path = require('path');
 const fs = require('fs');
+const cloudinary = require('../../config/cloudinary'); // à ajouter en haut du fichier
 
 // --- GET /profile : récupération du profil + statistiques
 router.get('/profile', authMiddleware, async (req, res) => {
@@ -128,6 +133,7 @@ function multerErrorHandler(err, req, res, next) {
   next();
 }
 
+
 // --- PUT /profile/photo
 router.put(
   '/profile/photo',
@@ -144,12 +150,26 @@ router.put(
 
       console.log('Fichier reçu /profile/photo:', req.file);
 
-      const profilePhotoUrl = `https://shopnet-backend.onrender.com/uploads/profile/${req.file.filename}`;
+      // Upload vers Cloudinary
+      const result = await cloudinary.uploader.upload(req.file.path, {
+        folder: 'shopnet/profile',
+        public_id: `profile_${userId}_${Date.now()}`,
+        overwrite: true
+      });
 
+      // URL sécurisée depuis Cloudinary
+      const profilePhotoUrl = result.secure_url;
+
+      // Mise à jour dans la base de données
       await db.execute(
         'UPDATE utilisateurs SET profile_photo = ? WHERE id = ?',
         [profilePhotoUrl, userId]
       );
+
+      // Supprimer le fichier local après upload
+      fs.unlink(req.file.path, (err) => {
+        if (err) console.error('Erreur suppression fichier local:', err);
+      });
 
       res.json({
         success: true,
@@ -213,7 +233,6 @@ router.get('/my-products', authMiddleware, async (req, res) => {
   }
 });
 
-
 // --- PUT /cover/photo
 router.put(
   '/cover/photo',
@@ -230,12 +249,26 @@ router.put(
 
       console.log('Fichier reçu /cover/photo:', req.file);
 
-      const coverPhotoUrl = `https://shopnet-backend.onrender.com/uploads/cover/${req.file.filename}`;
+      // Upload vers Cloudinary
+      const result = await cloudinary.uploader.upload(req.file.path, {
+        folder: 'shopnet/cover',
+        public_id: `cover_${userId}_${Date.now()}`,
+        overwrite: true
+      });
 
+      // URL sécurisée depuis Cloudinary
+      const coverPhotoUrl = result.secure_url;
+
+      // Mise à jour dans la base de données
       await db.execute(
         'UPDATE utilisateurs SET cover_photo = ? WHERE id = ?',
         [coverPhotoUrl, userId]
       );
+
+      // Supprimer le fichier local après upload
+      fs.unlink(req.file.path, (err) => {
+        if (err) console.error('Erreur suppression fichier local:', err);
+      });
 
       res.json({
         success: true,
@@ -250,5 +283,6 @@ router.put(
 );
 
 router.use(multerErrorHandler);
+
 
 module.exports = router;

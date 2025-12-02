@@ -1,9 +1,8 @@
 const fs = require('fs');
-const path = require('path');
 const mysql = require('mysql2/promise');
+const path = require('path');
 
-// Fonction pour exporter la base Railway
-async function exportDB() {
+async function exportTables() {
     const connection = await mysql.createConnection({
         host: process.env.DB_HOST || 'tramway.proxy.rlwy.net',
         user: process.env.DB_USER || 'root',
@@ -19,22 +18,14 @@ async function exportDB() {
         const tableName = Object.values(t)[0];
         const [create] = await connection.query(`SHOW CREATE TABLE \`${tableName}\``);
         sqlDump += `${create[0]['Create Table']};\n\n`;
-
-        const [rows] = await connection.query(`SELECT * FROM \`${tableName}\``);
-        rows.forEach(row => {
-            const cols = Object.keys(row).map(c => `\`${c}\``).join(',');
-            const vals = Object.values(row).map(v => connection.escape(v)).join(',');
-            sqlDump += `INSERT INTO \`${tableName}\` (${cols}) VALUES (${vals});\n`;
-        });
-        sqlDump += '\n\n';
     }
 
-    // Sauvegarde dans le dossier du projet Render
-    const filePath = path.join(__dirname, 'railway_backup.sql');
+    const filePath = path.join(__dirname, 'tables_only.sql');
     fs.writeFileSync(filePath, sqlDump);
-    console.log(`✔ Backup créé : ${filePath}`);
+    console.log(`✔ Structure des tables exportée : ${filePath}`);
 
     await connection.end();
 }
 
-module.exports = { exportDB };
+// Exécution directe si lancé avec Node
+exportTables().catch(err => console.error(err));

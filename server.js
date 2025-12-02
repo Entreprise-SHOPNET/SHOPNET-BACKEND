@@ -9,7 +9,7 @@ const rateLimit = require('express-rate-limit');
 const http = require('http');
 const { Server } = require('socket.io');
 const { Expo } = require('expo-server-sdk');
-const { exportDB } = require('./exportDB'); // Chemin vers ton fichier exportDB.js
+//const { exportDB } = require('./exportDB'); // Chemin vers ton fichier exportDB.js
 const expo = new Expo();
 const app = express();
 app.set('trust proxy', 1);
@@ -243,7 +243,11 @@ const compteurNonLusRoutes = require('./Route/Notifications/compteurNonLus'); //
 const notificationsRoute = require('./Route/Notifications/notificationsRoute'); // ROUTES POUR  RECUPERER TOUTES LE NOTIFICATION 
 const saveExpoTokenRoute = require('./Route/Notifications/saveExpoToken');  //SYSTEME DE NOTIFICATION QUAND L'APPLICATION ET FERMER OU EN ARRIERE PLAN
 const latestRouter = require('./Route/FilDActualite/latest'); /// SYSTEME D AFFICHARGE DE PRODUITS SELONS LES DATE PRODUITS RECENTS
-const backupRoutes = require('./backupRoutes'); // Chemin vers backupRoutes.js
+//const backupRoutes = require('./backupRoutes'); // Chemin vers backupRoutes.js
+const boostProductRoutes = require('./Route/Paiement/boostProduct');
+const editProductRoutes = require('./Route/vendeur/EditProduits');
+const promotionsRoutes = require('./Route/vendeur/promotions'); // Route pour gérer les promotions
+
 
 
 
@@ -272,7 +276,11 @@ app.use('/api/notifications', compteurNonLusRoutes); //SYSTEME DES NOTIFICATION 
 app.use('/api/notifications', notificationsRoute);  // ROUTES POUR  RECUPERER TOUTES LE NOTIFICATION 
 app.use('/api', saveExpoTokenRoute);  //SYSTEME DE NOTIFICATION QUAND L'APPLICATION ET FERMER OU EN ARRIERE PLAN
 app.use('/api/latest', latestRouter); // chemin exact // SYSTEME D AFFICHARGE DE PRODUITS SELONS LES DATE PRODUITS RECENTS
-app.use('/', backupRoutes); // Tu peux aussi mettre un préfixe comme '/api/backup'
+//app.use('/', backupRoutes); // Tu peux aussi mettre un préfixe comme '/api/backup'
+app.use('/api/boost', boostProductRoutes);
+app.use('/api/products/edit', editProductRoutes); 
+ // ... plus bas dans tes app.use
+app.use('/api/promotions', promotionsRoutes);  // Création et notification des promotions
 
 
 

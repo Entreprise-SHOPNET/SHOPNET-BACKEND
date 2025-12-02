@@ -8,9 +8,14 @@ const authMiddleware = require('../../middlewares/authMiddleware');
 // Catégories autorisées (reprend ton frontend)
 const ALLOWED_CATEGORIES = ["Tendance", "Mode", "Tech", "Maison", "Beauté"];
 
+
+
 /**
  * PUT /api/products/:id
  */
+
+
+
 router.put('/:id', authMiddleware, async (req, res, next) => {
   const db = req.db; // pool mysql2/promise injecté dans server.js
   const productId = req.params.id;

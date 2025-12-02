@@ -10,9 +10,9 @@ const cloudinary = require('cloudinary').v2;
 
 router.use(cors({
   origin: [
-    'http://localhost', 
+    'http://100.64.134.89:5000', 
     'http://100.64.134.89',
-    'https://shopnet-backend.onrender.com' // Ajoutez votre URL Render ici
+    'https://100.64.134.89:5000' // Ajoutez votre URL Render ici
   ],
   methods: ['GET', 'POST', 'PUT', 'DELETE']
 }));

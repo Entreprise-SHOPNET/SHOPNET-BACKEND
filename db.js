@@ -59,7 +59,7 @@ async function testConnection() {
   let connection;
   try {
     connection = await pool.getConnection();
-    console.log(`✅ Connecté à MySQL sur ${host}:${port} base "${database}"`);
+    console.log(`✅ Connecté à MySQL en local sur ${host}:${port} base "${database}"`);
   } catch (err) {
     console.error('❌ Erreur de connexion MySQL:', err.message);
     console.log('🔄 Nouvelle tentative dans 5 secondes...');
@@ -68,6 +68,7 @@ async function testConnection() {
     if (connection) connection.release();
   }
 }
+
 
 // Lancer le test initial
 testConnection();
