@@ -21,6 +21,7 @@
     "express": "^5.1.0",
     "express-rate-limit": "^7.5.0",
     "express-validator": "^7.2.1",
+    "geolib": "^3.3.4",
     "googleapis": "^161.0.0",
     "haversine-distance": "^1.2.4",
     "helmet": "^8.1.0",
