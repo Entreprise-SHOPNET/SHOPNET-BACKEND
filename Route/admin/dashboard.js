@@ -1,11 +1,9 @@
 
-
 const express = require('express');
 const router = express.Router();
-const authMiddleware = require('../../middleware/authMiddleware'); // protége la route
 
 // GET /api/admin/dashboard
-router.get('/', authMiddleware, async (req, res) => {
+router.get('/', async (req, res) => {
   try {
     const db = req.db;
     console.log('[DASHBOARD] Début récupération des statistiques');
