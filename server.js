@@ -251,7 +251,7 @@ const boostProductRoutes = require('./Route/Paiement/boostProduct');
 const editProductRoutes = require('./Route/vendeur/EditProduits');
 const promotionsRoutes = require('./Route/vendeur/promotions'); // Route pour gérer les promotions
 const locationRoutes = require('./Route/FilDActualite/locationRoute.js');
-
+const dashboardRoutes = require('./Route/admin/dashboard');
 
 
 
@@ -286,7 +286,7 @@ app.use('/api/products/edit', editProductRoutes);
  // ... plus bas dans tes app.use
 app.use('/api/promotions', promotionsRoutes);  // Création et notification des promotions
 app.use('/api/location', locationRoutes);
-
+app.use('/api/admin/dashboard', dashboardRoutes);
 
 
 
