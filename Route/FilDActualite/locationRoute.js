@@ -9,12 +9,9 @@ const geoLib = require('geolib');
 const { v4: uuidv4 } = require('uuid');
 
 // Configuration Redis
-const redisClient = redis.createClient({
-  url: process.env.REDIS_URL || 'redis://localhost:6379'
-});
+// Utiliser le client Redis centralisé pour éviter les connexions locales refusées
+const redisClient = require('../../ia_statique/redisClient'); // Chemin vers ton redisClient.js
 
-redisClient.on('error', (err) => console.error('Redis Client Error', err));
-redisClient.connect();
 
 /**
  * Fonctions utilitaires
