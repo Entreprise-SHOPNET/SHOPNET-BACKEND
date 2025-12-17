@@ -10,7 +10,8 @@ const pool = require('../db');
 
 // Configuration Redis
 // Utiliser le client Redis centralisé
-const redisClient = require('../ia_statique/redisClient'); // chemin relatif depuis ton router
+const redisClient = require('../ia_statique/redisClient');
+ // chemin relatif depuis ton router
 
 
 // Configuration NLP
