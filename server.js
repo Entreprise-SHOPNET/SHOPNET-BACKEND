@@ -251,9 +251,9 @@ const boostProductRoutes = require('./Route/Paiement/boostProduct');
 const editProductRoutes = require('./Route/vendeur/EditProduits');
 const promotionsRoutes = require('./Route/vendeur/promotions'); // Route pour gérer les promotions
 const locationRoutes = require('./Route/FilDActualite/locationRoute.js');
-
-
-
+const dashboardRoutes = require('./Route/admin/dashboard');
+const dashboardProduitsRouter = require('./Route/admin/DashboardProduits');
+const manualPaymentRoutes = require('./Route/Paiement/manual-payment'); // Systeme de paiement
 
 
 app.use('/api/products', productsRoutes);       // d'abord le routeur principal des produits
@@ -286,7 +286,9 @@ app.use('/api/products/edit', editProductRoutes);
  // ... plus bas dans tes app.use
 app.use('/api/promotions', promotionsRoutes);  // Création et notification des promotions
 app.use('/api/location', locationRoutes);
-
+app.use('/api/admin/dashboard', dashboardRoutes);
+app.use('/api/admin/DashboardProduits', dashboardProduitsRouter);
+app.use('/api/manual-payment', manualPaymentRoutes); // Systeme de paiement
 
 
 
@@ -317,5 +319,7 @@ process.on('SIGTERM', () => {
 });
 
 module.exports = server;
+
+
 
 

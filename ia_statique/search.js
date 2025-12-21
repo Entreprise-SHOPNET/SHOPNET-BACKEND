@@ -1,5 +1,7 @@
 
 
+
+
 const express = require('express');
 const router = express.Router();
 const redis = require('redis');
@@ -9,10 +11,10 @@ const { Op } = require('sequelize');
 const pool = require('../db');
 
 // Configuration Redis
-const redisClient = redis.createClient({ 
-  url: process.env.REDIS_URL || 'redis://localhost:6379'
-});
-redisClient.connect().catch(console.error);
+// Utiliser le client Redis centralisé
+const redisClient = require('../ia_statique/redisClient');
+ // chemin relatif depuis ton router
+
 
 // Configuration NLP
 const tokenizer = new natural.WordTokenizer();

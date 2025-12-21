@@ -144,7 +144,7 @@ router.get('/popular', authMiddleware, async (req, res) => {
 
     console.log(`📥 Requête /popular - User: ${userId}, Page: ${page}, Limit: ${limit}`);
 
-    // Requête SQL avec calcul du score de popularité
+    // Requête SQL avec calcul du score de popularité + boost pour produits sponsorisés
     const [products] = await db.query(`
       SELECT 
         p.*,
@@ -161,8 +161,9 @@ router.get('/popular', authMiddleware, async (req, res) => {
         EXISTS (
           SELECT 1 FROM product_likes pl WHERE pl.product_id = p.id AND pl.user_id = ?
         ) AS isLiked,
-        -- Calcul du score de popularité
+        -- Calcul du score de popularité avec boost pour produit sponsorisé
         (
+          (CASE WHEN p.is_featured = 1 THEN 25 ELSE 0 END) +  -- BOOST puissant de 25 points
           (COALESCE(p.likes_count, 0) * 2) + 
           (COALESCE(p.views_count, 0) * 1.5) + 
           (COALESCE((SELECT COUNT(*) FROM product_comments pc WHERE pc.product_id = p.id), 0) * 3) +
@@ -171,7 +172,6 @@ router.get('/popular', authMiddleware, async (req, res) => {
           -- Bonus pour les produits récents (moins de 7 jours)
           (CASE WHEN DATEDIFF(NOW(), p.created_at) <= 7 THEN 10 ELSE 0 END)
         ) AS popularity_score
-        
       FROM products p
       LEFT JOIN utilisateurs u ON p.seller_id = u.id
       -- Tri par score de popularité (décroissant)
@@ -206,18 +206,16 @@ router.get('/popular', authMiddleware, async (req, res) => {
       delivery_options: safeJsonParse(product.delivery_options),
       created_at: product.created_at,
       updated_at: product.updated_at,
-      // Statistiques d'engagement
       likes: product.likes_count || 0,
       shares: product.shares_count || 0,
       comments: product.comments_count || 0,
       views: product.views_count || 0,
       sales: product.sales || 0,
       isLiked: Boolean(product.isLiked),
-      popularity_score: product.popularity_score || 0, // Score calculé
-      // Images
+      popularity_score: product.popularity_score || 0,
+      is_featured: Boolean(product.is_featured), // Pour savoir si le produit est sponsorisé
       images: product.images || [],
       image_urls: product.image_urls || [],
-      // Informations du vendeur
       seller: {
         id: product.seller_id?.toString() || null,
         name: product.seller_name || "Vendeur inconnu",
@@ -232,7 +230,6 @@ router.get('/popular', authMiddleware, async (req, res) => {
 
     console.log(`✅ ${formatted.length} produits populaires récupérés pour la page ${page}`);
 
-    // Réponse JSON structurée
     res.json({
       success: true,
       page: page,
@@ -287,26 +284,24 @@ router.get('/feed', authMiddleware, async (req, res) => {
     console.log(`👤 User ${userId} - Ville: ${userCity}, Préférences:`, userPreferences);
 
     // Catégories likées
-const [userLikes] = await db.query(`
-  SELECT p.category
-  FROM product_likes pl
-  JOIN products p ON pl.product_id = p.id
-  WHERE pl.user_id = ?
-  GROUP BY p.category
-  ORDER BY MAX(pl.created_at) DESC
-  LIMIT 10
-`, [userId]);
+    const [userLikes] = await db.query(`
+      SELECT p.category
+      FROM product_likes pl
+      JOIN products p ON pl.product_id = p.id
+      WHERE pl.user_id = ?
+      GROUP BY p.category
+      ORDER BY MAX(pl.created_at) DESC
+      LIMIT 10
+    `, [userId]);
 
     const likedCategories = userLikes.map(like => like.category);
     console.log(`❤️ Catégories likées:`, likedCategories);
 
     // Construction paramètres pour la requête
     let queryParams = [userId]; // pour isLiked dans SELECT
-
-    // Liste des placeholders pour les catégories likées
     const categoryPlaceholders = likedCategories.map(() => '?').join(',');
 
-    // Requête principale feed
+    // Requête principale feed avec boost maximal pour les produits sponsorisés
     const [products] = await db.query(`
       SELECT 
         p.*,
@@ -319,6 +314,7 @@ const [userLikes] = await db.query(`
         (SELECT COUNT(*) FROM product_comments pc WHERE pc.product_id = p.id) AS comments_count,
         EXISTS (SELECT 1 FROM product_likes pl WHERE pl.product_id = p.id AND pl.user_id = ?) AS isLiked,
         (
+          (CASE WHEN p.is_featured = 1 THEN 50 ELSE 0 END) + -- BOOST MAX pour produit sponsorisé
           (COALESCE(p.likes_count,0)*2) +
           (COALESCE(p.views_count,0)*1.5) +
           (COALESCE((SELECT COUNT(*) FROM product_comments pc WHERE pc.product_id = p.id),0)*3) +
@@ -327,8 +323,7 @@ const [userLikes] = await db.query(`
           (CASE WHEN DATEDIFF(NOW(), p.created_at) <= 7 THEN 15 ELSE 0 END) +
           ${likedCategories.length > 0 ? `(CASE WHEN p.category IN (${categoryPlaceholders}) THEN 20 ELSE 0 END) +` : ''}
           (CASE WHEN u.ville = ? THEN 10 ELSE 0 END) +
-          (CASE WHEN p.seller_id != ? THEN 5 ELSE 0 END) +
-          (CASE WHEN p.is_featured = 1 THEN 8 ELSE 0 END)
+          (CASE WHEN p.seller_id != ? THEN 5 ELSE 0 END)
         ) AS relevance_score
       FROM products p
       LEFT JOIN utilisateurs u ON p.seller_id = u.id
@@ -404,5 +399,6 @@ const [userLikes] = await db.query(`
     });
   }
 });
+
 
 module.exports = router;

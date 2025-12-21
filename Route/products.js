@@ -308,33 +308,40 @@ router.post('/', authMiddleware, (req, res) => {
 
 // ----------------------------
 // DELETE /products/:id — Supprimer un produit
-// ----------------------------
-// ----------------------------
+// ----------------------------// ----------------------------
 // DELETE /products/:id — Supprimer un produit
 // ----------------------------
 router.delete('/:id', authMiddleware, async (req, res) => {
-  const productId = req.params.id;
-  const userId = req.userId; // 🛡️ vient du token JWT
+  const productId = req.params.id;       // ID du produit à supprimer
+  const userId = req.userId;             // ID du vendeur depuis le token JWT
   let connection;
 
   try {
-    connection = await db.getConnection();
-    await connection.beginTransaction();
+    connection = await db.getConnection();   // Connexion à la base
+    await connection.beginTransaction();     // Démarrer une transaction pour sécurité
 
-    // Vérifier que le produit appartient bien à l’utilisateur connecté
+    // -------------------------
+    // 1️⃣ Vérifier que le produit appartient bien à l’utilisateur
+    // -------------------------
     const [rows] = await connection.query(
       'SELECT id FROM products WHERE id = ? AND seller_id = ? LIMIT 1',
       [productId, userId]
     );
+
     if (rows.length === 0) {
       await connection.release();
       return res.status(403).json({ success: false, error: "Vous n'êtes pas autorisé à supprimer ce produit" });
     }
 
-    // Supprimer toutes les entrées dans commande_produits (évite l'erreur foreign key)
+    // -------------------------
+    // 2️⃣ Supprimer toutes les entrées dans commande_produits
+    // pour éviter les erreurs de foreign key
+    // -------------------------
     await connection.query('DELETE FROM commande_produits WHERE produit_id = ?', [productId]);
 
-    // Supprimer toutes les images Cloudinary liées
+    // -------------------------
+    // 3️⃣ Supprimer toutes les images Cloudinary liées au produit
+    // -------------------------
     const [images] = await connection.query(
       'SELECT image_path FROM product_images WHERE product_id = ?',
       [productId]
@@ -348,18 +355,39 @@ router.delete('/:id', authMiddleware, async (req, res) => {
       }
     }
 
-    // Supprimer les images en base
+    // -------------------------
+    // 4️⃣ Supprimer les images en base
+    // -------------------------
     await connection.query('DELETE FROM product_images WHERE product_id = ?', [productId]);
 
-    // Supprimer le produit
+    // -------------------------
+    // 5️⃣ Enregistrer le produit supprimé dans la table log
+    // -------------------------
+    await connection.query(
+      'INSERT INTO products_deleted_logs (product_id, seller_id) VALUES (?, ?)',
+      [productId, userId]
+    );
+
+    // -------------------------
+    // 6️⃣ Supprimer physiquement le produit
+    // -------------------------
     await connection.query('DELETE FROM products WHERE id = ?', [productId]);
 
+    // -------------------------
+    // 7️⃣ Valider la transaction
+    // -------------------------
     await connection.commit();
     connection.release();
 
+    // -------------------------
+    // 8️⃣ Réponse au frontend
+    // -------------------------
     res.json({ success: true, message: 'Produit supprimé avec succès' });
 
   } catch (error) {
+    // -------------------------
+    // 9️⃣ Gestion des erreurs et rollback
+    // -------------------------
     if (connection) {
       await connection.rollback();
       connection.release();

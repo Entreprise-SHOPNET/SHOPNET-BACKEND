@@ -1,5 +1,4 @@
 
-
 // Route: /api/products-discover
 const express = require('express');
 const router = express.Router();
@@ -14,7 +13,7 @@ router.get('/', authMiddleware, async (req, res) => {
     const limit = parseInt(req.query.limit) || 8;
     const offset = (page - 1) * limit;
 
-    // Récupérer les produits avec stats et mise en avant
+    // Récupérer les produits avec stats et mise en avant + boost pour produits sponsorisés
     const query = `
       SELECT 
         p.*,
@@ -29,11 +28,20 @@ router.get('/', authMiddleware, async (req, res) => {
         EXISTS (
           SELECT 1 FROM product_likes pl WHERE pl.product_id = p.id AND pl.user_id = ?
         ) AS isLiked,
-        IFNULL((SELECT JSON_ARRAYAGG(pi.absolute_url) FROM product_images pi WHERE pi.product_id = p.id), JSON_ARRAY()) AS images
+        IFNULL((SELECT JSON_ARRAYAGG(pi.absolute_url) FROM product_images pi WHERE pi.product_id = p.id), JSON_ARRAY()) AS images,
+        -- Calcul du score avec boost +25 points pour produits sponsorisés
+        (
+          (CASE WHEN p.is_featured = 1 THEN 25 ELSE 0 END) +
+          ((SELECT COUNT(*) FROM product_likes pl WHERE pl.product_id = p.id) * 3) +
+          ((SELECT COUNT(*) FROM product_shares ps WHERE ps.product_id = p.id) * 2) +
+          ((SELECT COUNT(*) FROM product_comments pc WHERE pc.product_id = p.id) * 1.5) +
+          ((SELECT COUNT(*) FROM carts c WHERE c.product_id = p.id) * 2) +
+          (IFNULL((SELECT SUM(cp.quantite) FROM commande_produits cp WHERE cp.produit_id = p.id),0) * 5) +
+          COALESCE(p.views_count,0)
+        ) AS popularity_score
       FROM products p
       LEFT JOIN utilisateurs u ON p.seller_id = u.id
-      ORDER BY p.is_featured DESC, 
-               ((likes_count*3) + (shares_count*2) + (comments_count*1.5) + (cart_count*2) + (order_count*5) + views_count) DESC
+      ORDER BY popularity_score DESC, p.created_at DESC
       LIMIT ? OFFSET ?
     `;
 
@@ -63,6 +71,7 @@ router.get('/', authMiddleware, async (req, res) => {
       cart_count: p.cart_count || 0,
       orders_count: p.order_count || 0,
       isLiked: Boolean(p.isLiked),
+      popularity_score: p.popularity_score || 0,
       images: p.images || [],
       seller: {
         id: p.seller_id?.toString(),
