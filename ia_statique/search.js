@@ -314,27 +314,29 @@ router.get('/autocomplete', async (req, res) => {
 async function getProductSuggestions(query) {
   try {
     const [results] = await pool.query(`
-      SELECT 
-        p.id,
-        p.title,
-        p.price,
-        p.category,
-        p.location,
-        pi.absolute_url as thumbnail
-      FROM products p
-      LEFT JOIN product_images pi ON pi.product_id = p.id AND pi.is_primary = 1
-      WHERE (p.title LIKE ? OR p.description LIKE ?)
-        AND p.stock > 0
-        AND p.is_active = 1
-      GROUP BY p.id
-      ORDER BY 
-        CASE 
-          WHEN p.title LIKE ? THEN 1
-          WHEN p.title LIKE ? THEN 2
-          ELSE 3
-        END,
-        p.views_count DESC
-      LIMIT 10
+SELECT 
+  p.id,
+  p.title,
+  p.price,
+  p.category,
+  p.location,
+  MAX(pi.absolute_url) AS thumbnail
+FROM products p
+LEFT JOIN product_images pi 
+  ON pi.product_id = p.id AND pi.is_primary = 1
+WHERE (p.title LIKE ? OR p.description LIKE ?)
+  AND p.stock > 0
+  AND p.is_active = 1
+GROUP BY p.id
+ORDER BY 
+  CASE 
+    WHEN p.title LIKE ? THEN 1
+    WHEN p.title LIKE ? THEN 2
+    ELSE 3
+  END,
+  p.views_count DESC
+LIMIT 10;
+
     `, [`%${query}%`, `%${query}%`, `${query}%`, `%${query}%`]);
     
     return results;
