@@ -254,6 +254,9 @@ const locationRoutes = require('./Route/FilDActualite/locationRoute.js');
 const dashboardRoutes = require('./Route/admin/dashboard');
 const dashboardProduitsRouter = require('./Route/admin/DashboardProduits');
 const manualPaymentRoutes = require('./Route/Paiement/manual-payment'); // Systeme de paiement
+const boutiquePremiumRoutes = require('./Route/BoutiquePremium/BoutiquePremium');
+const analyticsRoutes = require('./Route/BoutiquePremium/Analytics');  // Analytics Boutique Premium
+
 
 
 app.use('/api/products', productsRoutes);       // d'abord le routeur principal des produits
@@ -289,8 +292,8 @@ app.use('/api/location', locationRoutes);
 app.use('/api/admin/dashboard', dashboardRoutes);
 app.use('/api/admin/DashboardProduits', dashboardProduitsRouter);
 app.use('/api/manual-payment', manualPaymentRoutes); // Systeme de paiement
-
-
+app.use('/api/boutique/premium', boutiquePremiumRoutes);
+app.use('/api/analytics', analyticsRoutes);    // Analytics Boutique Premium
 
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'UP' });
