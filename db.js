@@ -1,36 +1,23 @@
 
-
-// db.js
 // db.js
 require('dotenv').config();
 const mysql = require('mysql2/promise');
 
-const host = process.env.DB_HOST;
-const port = process.env.DB_PORT ? parseInt(process.env.DB_PORT) : 3306;
-const user = process.env.DB_USER;
-const password = process.env.DB_PASSWORD;
-const database = process.env.DB_NAME;
+// Utilisation de l'URL publique Railway pour Render
+const databaseUrl = process.env.MYSQL_PUBLIC_URL;
 
-if (!host || !user || !password || !database) {
-  throw new Error("❌ Variables d'environnement MySQL non définies !");
+if (!databaseUrl) {
+  throw new Error("❌ MYSQL_PUBLIC_URL non défini dans le .env");
 }
 
 let pool;
 
 function createPool() {
-  pool = mysql.createPool({
-    host,
-    user,
-    password,
-    database,
-    port,
-    waitForConnections: true,
-    connectionLimit: 10,
-    queueLimit: 0,
-  });
+  // Crée le pool MySQL avec l'URL publique
+  pool = mysql.createPool(databaseUrl + '?connectionLimit=10');
 
   pool.on('connection', () => {
-    console.log(`🔗 Nouvelle connexion MySQL établie sur ${host}:${port}`);
+    console.log('🔗 Nouvelle connexion MySQL via Railway PUBLIC URL');
   });
 
   pool.on('error', (err) => {
@@ -52,11 +39,11 @@ async function testConnection() {
   let conn;
   try {
     conn = await pool.getConnection();
-    console.log(`✅ Connecté à MySQL Railway sur ${host}:${port}, base "${database}"`);
+    console.log('✅ Connecté à MySQL Railway via PUBLIC URL');
   } catch (err) {
     console.error('❌ Erreur de connexion MySQL Railway:', err.message);
     console.log('🔄 Nouvelle tentative dans 5 secondes...');
-    setTimeout(testConnection, 5000); // ← ici on rappelle correctement testConnection
+    setTimeout(testConnection, 5000);
   } finally {
     if (conn) conn.release();
   }
