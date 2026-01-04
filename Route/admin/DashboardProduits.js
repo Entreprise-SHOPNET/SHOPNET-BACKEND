@@ -75,4 +75,58 @@ router.get('/dashboard', async (req, res) => {
   }
 });
 
+
+
+
+
+
+
+
+
+
+//Commandes est Paye
+// =====================
+// Dashboard Commandes
+// =====================
+// Route publique pour tester dashboard commandes
+router.get('/dashboard/commandes/test', async (req, res) => {
+  try {
+    const [[{ totalOrders }]] = await db.query(
+      `SELECT COUNT(*) AS totalOrders FROM commandes`
+    );
+
+    const [[{ totalPaidOrders }]] = await db.query(
+      `SELECT COUNT(*) AS totalPaidOrders 
+       FROM commandes 
+       WHERE statut_paiement = 'validated'`
+    );
+
+    const [[{ totalPaidAmount }]] = await db.query(
+      `SELECT COALESCE(SUM(total), 0) AS totalPaidAmount 
+       FROM commandes 
+       WHERE statut_paiement = 'validated'`
+    );
+
+    const [[{ totalAmount }]] = await db.query(
+      `SELECT COALESCE(SUM(total), 0) AS totalAmount 
+       FROM commandes`
+    );
+
+    return res.json({
+      success: true,
+      stats: {
+        totalOrders,
+        totalPaidOrders,
+        totalAmount,
+        totalPaidAmount
+      }
+    });
+    
+  } catch (err) {
+    console.error('Erreur GET /dashboard/commandes/test:', err);
+    return res.status(500).json({ success: false, error: 'Erreur serveur' });
+  }
+});
+
+
 module.exports = router;

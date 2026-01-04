@@ -256,6 +256,7 @@ const dashboardProduitsRouter = require('./Route/admin/DashboardProduits');
 const manualPaymentRoutes = require('./Route/Paiement/manual-payment'); // Systeme de paiement
 const boutiquePremiumRoutes = require('./Route/BoutiquePremium/BoutiquePremium');
 const analyticsRoutes = require('./Route/BoutiquePremium/Analytics');  // Analytics Boutique Premium
+const commandesAdminRouter = require('./Route/admin/CommandesPayeAdmin');  //Route pour les Tableau de bord de commandePaye
 
 
 
@@ -294,6 +295,11 @@ app.use('/api/admin/DashboardProduits', dashboardProduitsRouter);
 app.use('/api/manual-payment', manualPaymentRoutes); // Systeme de paiement
 app.use('/api/boutique/premium', boutiquePremiumRoutes);
 app.use('/api/analytics', analyticsRoutes);    // Analytics Boutique Premium
+app.use('/admin', commandesAdminRouter);   //Route pour les Tableau de bord de commandePaye
+
+
+
+
 
 app.get('/health', (req, res) => {
   res.status(200).json({ status: 'UP' });

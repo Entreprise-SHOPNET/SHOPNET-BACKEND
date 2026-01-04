@@ -80,6 +80,7 @@ router.get('/', async (req, res) => {
       try { return JSON.parse(value); } catch { return []; }
     };
 
+    // Récupération des produits depuis la base
     const [products] = await db.query(`
       SELECT 
         p.*,
@@ -87,12 +88,20 @@ router.get('/', async (req, res) => {
         u.id AS seller_id,
         u.fullName AS seller_name,
         u.profile_photo AS seller_avatar,
-        (SELECT JSON_ARRAYAGG(pi.absolute_url) FROM product_images pi WHERE pi.product_id = p.id) AS image_urls,
+        (SELECT JSON_ARRAYAGG(
+            CASE
+              WHEN pi.absolute_url IS NOT NULL AND pi.absolute_url != ''
+              THEN pi.absolute_url
+              ELSE pi.image_path
+            END
+          )
+          FROM product_images pi
+          WHERE pi.product_id = p.id
+        ) AS image_urls,
         p.likes_count,
         p.shares_count,
-        ${userId ? `
-        EXISTS (
-          SELECT 1 FROM product_likes pl 
+        ${userId ? `EXISTS (
+          SELECT 1 FROM product_likes pl
           WHERE pl.product_id = p.id AND pl.user_id = ${db.escape(userId)}
         )` : '0'} AS isLiked
       FROM products p
@@ -109,28 +118,38 @@ router.get('/', async (req, res) => {
       `SELECT COUNT(*) AS total FROM products WHERE is_active = 1`
     );
 
-    const formatted = products.map(p => ({
-      id: p.id.toString(),
-      title: p.title,
-      description: p.description,
-      price: Number(p.price),
-      original_price: p.original_price ? Number(p.original_price) : null,
-      images: parseJson(p.image_urls),
-      likes: p.likes_count || 0,
-      shares: p.shares_count || 0,
-      comments: p.comments_count || 0,
-      isLiked: Boolean(p.isLiked),
-      isPromotion: Boolean(p.is_boosted),
-      seller: {
-        id: p.seller_id?.toString(),
-        name: p.seller_name || 'Vendeur inconnu',
-        avatar: p.seller_avatar
-          ? p.seller_avatar.startsWith('http')
-            ? p.seller_avatar
-            : `${req.protocol}://${req.get('host')}${p.seller_avatar}`
-          : 'https://via.placeholder.com/40'
-      }
-    }));
+    const CLOUDINARY_BASE = `https://res.cloudinary.com/${process.env.CLOUD_NAME}/image/upload/`;
+
+    // Formatage final pour le frontend
+    const formatted = products.map(p => {
+      const parsedImages = parseJson(p.image_urls).map(img =>
+        img.startsWith("http") ? img : `${CLOUDINARY_BASE}${img}`
+      );
+
+      return {
+        id: p.id.toString(),
+        title: p.title,
+        description: p.description,
+        price: Number(p.price),
+        original_price: p.original_price ? Number(p.original_price) : null,
+        images: parsedImages,      // affichage front
+        image_urls: parsedImages,  // communique correctement avec le frontend
+        likes: p.likes_count || 0,
+        shares: p.shares_count || 0,
+        comments: p.comments_count || 0,
+        isLiked: Boolean(p.isLiked),
+        isPromotion: Boolean(p.is_boosted),
+        seller: {
+          id: p.seller_id?.toString(),
+          name: p.seller_name || 'Vendeur inconnu',
+          avatar: p.seller_avatar
+            ? p.seller_avatar.startsWith('http')
+              ? p.seller_avatar
+              : `${req.protocol}://${req.get('host')}${p.seller_avatar}`
+            : 'https://via.placeholder.com/40'
+        }
+      };
+    });
 
     res.json({
       success: true,
@@ -144,7 +163,6 @@ router.get('/', async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
-
 
 
 
