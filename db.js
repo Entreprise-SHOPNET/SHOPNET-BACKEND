@@ -1,13 +1,19 @@
 
 
+// db.js
 require('dotenv').config();
 const mysql = require('mysql2/promise');
 
-const host = process.env.MYSQL_HOST || 'localhost';
-const port = process.env.MYSQL_PORT ? parseInt(process.env.MYSQL_PORT) : 3306;
-const user = process.env.MYSQL_USER || 'root';
-const password = process.env.MYSQL_PASSWORD || '';
-const database = process.env.MYSQL_DATABASE || 'shopnet_local_db';
+// ✅ Connexion MySQL PROD Render / Railway uniquement
+const host = process.env.DB_HOST;       // ex: mysql-railway.render.com
+const port = process.env.DB_PORT ? parseInt(process.env.DB_PORT) : 3306;
+const user = process.env.DB_USER;
+const password = process.env.DB_PASSWORD;
+const database = process.env.DB_NAME;
+
+if (!host || !user || !password || !database) {
+  throw new Error("❌ Variables d'environnement MySQL non définies !");
+}
 
 let pool;
 
@@ -24,7 +30,7 @@ function createPool() {
   });
 
   pool.on('connection', () => {
-    console.log('🔗 Nouvelle connexion MySQL établie');
+    console.log(`🔗 Nouvelle connexion MySQL établie sur ${host}:${port}`);
   });
 
   pool.on('error', (err) => {
@@ -42,20 +48,17 @@ function createPool() {
 createPool();
 
 // Test de connexion
-async function testConnection() {
-  let connection;
+(async () => {
   try {
-    connection = await pool.getConnection();
-    console.log(`✅ Connecté à MySQL en local sur ${host}:${port} base "${database}"`);
+    const conn = await pool.getConnection();
+    console.log(`✅ Connecté à MySQL PROD sur ${host}:${port}, base "${database}"`);
+    conn.release();
   } catch (err) {
-    console.error('❌ Erreur de connexion MySQL:', err.message);
+    console.error('❌ Erreur de connexion MySQL PROD:', err.message);
     console.log('🔄 Nouvelle tentative dans 5 secondes...');
-    setTimeout(testConnection, 5000);
-  } finally {
-    if (connection) connection.release();
+    setTimeout(async () => { await testConnection(); }, 5000);
   }
-}
-
-testConnection();
+})();
 
 module.exports = pool;
+
