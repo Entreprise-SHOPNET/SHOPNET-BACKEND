@@ -1,14 +1,21 @@
 
 
 
+
+
+
 const express = require('express');
 const router = express.Router();
 const db = require('../db');
 const authenticateToken = require('../middlewares/authMiddleware');
 
-// 👉 Ajouter un produit au panier
+
 router.post('/', authenticateToken, async (req, res) => {
   const userId = Number(req.userId);
+
+  // 🔹 Protéger contre req.body undefined
+  const body = req.body || {};
+
   const {
     product_id,
     title,
@@ -25,7 +32,7 @@ router.post('/', authenticateToken, async (req, res) => {
     seller_id,
     seller_name,
     seller_rating
-  } = req.body;
+  } = body;
 
   if (!product_id || !title || !price) {
     return res.status(400).json({ success: false, message: 'Champs obligatoires manquants: product_id, title, price' });
@@ -74,6 +81,8 @@ router.post('/', authenticateToken, async (req, res) => {
     res.status(500).json({ success: false, error: 'Erreur serveur' });
   }
 });
+
+
 
 // 👉 Récupérer le panier de l’utilisateur
 router.get('/', authenticateToken, async (req, res) => {
