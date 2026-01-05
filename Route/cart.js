@@ -12,8 +12,6 @@ const authenticateToken = require('../middlewares/authMiddleware');
 
 router.post('/', authenticateToken, async (req, res) => {
   const userId = Number(req.userId);
-
-  // 🔹 Protéger contre req.body undefined
   const body = req.body || {};
 
   const {
@@ -39,6 +37,7 @@ router.post('/', authenticateToken, async (req, res) => {
   }
 
   try {
+    // Vérifie si le produit existe déjà dans le panier
     const [existing] = await db.query(
       'SELECT * FROM carts WHERE user_id = ? AND product_id = ?',
       [userId, product_id]
@@ -75,7 +74,32 @@ router.post('/', authenticateToken, async (req, res) => {
       );
     }
 
-    res.json({ success: true, message: '✅ Produit ajouté au panier avec succès' });
+    // Envoi notification push au vendeur si token Expo présent
+    const [seller] = await db.query(
+      'SELECT expoPushToken FROM utilisateurs WHERE id = ?',
+      [seller_id]
+    );
+
+    if (seller.length > 0 && seller[0].expoPushToken) {
+      const { Expo } = require('expo-server-sdk');
+      const expo = new Expo();
+
+      const messages = [{
+        to: seller[0].expoPushToken,
+        sound: 'default',
+        title: 'Un de vos produits a été ajouté au panier 🛒',
+        body: `"${title}" a été ajouté au panier par un client.`,
+        data: { productId: product_id, buyerId: userId }
+      }];
+
+      const chunks = expo.chunkPushNotifications(messages);
+      for (const chunk of chunks) {
+        await expo.sendPushNotificationsAsync(chunk).catch(err => console.error('Erreur notification:', err));
+      }
+    }
+
+    res.json({ success: true, message: '✅ Produit ajouté au panier avec succès', userId });
+
   } catch (err) {
     console.error('Erreur ajout panier :', err);
     res.status(500).json({ success: false, error: 'Erreur serveur' });
