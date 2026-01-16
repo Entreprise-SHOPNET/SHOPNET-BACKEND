@@ -6,9 +6,11 @@ const router = express.Router();
 const db = require('../db');
 const authenticateToken = require('../middlewares/authMiddleware');
 
-// 👉 Ajouter un produit au panier
+
 router.post('/', authenticateToken, async (req, res) => {
   const userId = Number(req.userId);
+  const body = req.body || {};
+
   const {
     product_id,
     title,
@@ -25,13 +27,14 @@ router.post('/', authenticateToken, async (req, res) => {
     seller_id,
     seller_name,
     seller_rating
-  } = req.body;
+  } = body;
 
   if (!product_id || !title || !price) {
     return res.status(400).json({ success: false, message: 'Champs obligatoires manquants: product_id, title, price' });
   }
 
   try {
+    // Vérifie si le produit existe déjà dans le panier
     const [existing] = await db.query(
       'SELECT * FROM carts WHERE user_id = ? AND product_id = ?',
       [userId, product_id]
@@ -68,12 +71,39 @@ router.post('/', authenticateToken, async (req, res) => {
       );
     }
 
-    res.json({ success: true, message: '✅ Produit ajouté au panier avec succès' });
+    // Envoi notification push au vendeur si token Expo présent
+    const [seller] = await db.query(
+      'SELECT expoPushToken FROM utilisateurs WHERE id = ?',
+      [seller_id]
+    );
+
+    if (seller.length > 0 && seller[0].expoPushToken) {
+      const { Expo } = require('expo-server-sdk');
+      const expo = new Expo();
+
+      const messages = [{
+        to: seller[0].expoPushToken,
+        sound: 'default',
+        title: 'Un de vos produits a été ajouté au panier 🛒',
+        body: `"${title}" a été ajouté au panier par un client.`,
+        data: { productId: product_id, buyerId: userId }
+      }];
+
+      const chunks = expo.chunkPushNotifications(messages);
+      for (const chunk of chunks) {
+        await expo.sendPushNotificationsAsync(chunk).catch(err => console.error('Erreur notification:', err));
+      }
+    }
+
+    res.json({ success: true, message: '✅ Produit ajouté au panier avec succès', userId });
+
   } catch (err) {
     console.error('Erreur ajout panier :', err);
     res.status(500).json({ success: false, error: 'Erreur serveur' });
   }
 });
+
+
 
 // 👉 Récupérer le panier de l’utilisateur
 router.get('/', authenticateToken, async (req, res) => {
