@@ -1,35 +1,37 @@
 
 
-// ia_statique/redisClient.js
 const redis = require('redis');
 require('dotenv').config(); // Charge les variables .env
 
-// On utilise uniquement l'URL Redis locale
+// Crée le client Redis avec les variables d'environnement
 const redisClient = redis.createClient({
-  url: process.env.REDIS_URL, // doit être redis://127.0.0.1:6379 dans ton .env
   socket: {
+    host: process.env.REDIS_HOST,
+    port: parseInt(process.env.REDIS_PORT),
     reconnectStrategy: retries => {
-      console.warn(`🔁 Redis reconnexion tentative #${retries}`);
+      console.warn(`🔁 Tentative de reconnexion Redis #${retries}`);
       return Math.min(retries * 50, 5000); // max 5 sec
     }
-  }
+  },
+  username: process.env.REDIS_USERNAME,
+  password: process.env.REDIS_PASSWORD
 });
 
-// Gestion des événements pour éviter les crashes
+// Gestion des événements pour logs et sécurité
 redisClient.on('connect', () => {
-  console.log('✅ Redis LOCAL connecté');
+  console.log('✅ Redis connecté');
 });
 
 redisClient.on('ready', () => {
-  console.log('🟢 Redis LOCAL prêt');
+  console.log('🟢 Redis prêt');
 });
 
 redisClient.on('error', (err) => {
-  console.error('⚠️ Redis LOCAL error :', err.message);
+  console.error('⚠️ Redis error :', err.message);
 });
 
 redisClient.on('end', () => {
-  console.warn('⚠️ Redis LOCAL déconnecté');
+  console.warn('⚠️ Redis déconnecté');
 });
 
 // Connexion au démarrage
@@ -37,8 +39,8 @@ redisClient.on('end', () => {
   try {
     await redisClient.connect();
   } catch (err) {
-    console.error('❌ Impossible de se connecter à Redis LOCAL :', err.message);
-    // Ne plus arrêter le serveur si Redis local n’est pas accessible
+    console.error('❌ Impossible de se connecter à Redis :', err.message);
+    // Le serveur continue de tourner malgré l'erreur
   }
 })();
 
