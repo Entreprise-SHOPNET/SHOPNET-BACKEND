@@ -18,12 +18,14 @@ router.get("/sellers/:id", async (req, res) => {
   const sellerId = req.params.id;
 
   try {
-    // Récupère le vendeur par son id (sans filtre sur email_verified)
+    // Récupère le vendeur par son id, inclut email et phone
     const [sellerRows] = await db.query(
       `
       SELECT 
         id,
         fullName,
+        email,
+        phone,
         companyName,
         address,
         profile_photo,
@@ -34,7 +36,7 @@ router.get("/sellers/:id", async (req, res) => {
       WHERE id = ?
       LIMIT 1
     `,
-      [sellerId],
+      [sellerId]
     );
 
     if (!sellerRows || sellerRows.length === 0) {
@@ -58,12 +60,17 @@ router.get("/sellers/:id", async (req, res) => {
         p.category,
         p.condition,
         p.created_at,
-        IFNULL((SELECT JSON_ARRAYAGG(pi.absolute_url) FROM product_images pi WHERE pi.product_id = p.id), JSON_ARRAY()) AS images
+        IFNULL(
+          (SELECT JSON_ARRAYAGG(pi.absolute_url) 
+           FROM product_images pi 
+           WHERE pi.product_id = p.id), 
+        JSON_ARRAY()
+        ) AS images
       FROM products p
       WHERE p.seller_id = ?
       ORDER BY p.created_at DESC
     `,
-      [sellerId],
+      [sellerId]
     );
 
     const formattedProducts = products.map((prod) => ({
@@ -81,9 +88,12 @@ router.get("/sellers/:id", async (req, res) => {
       images: prod.images || [],
     }));
 
+    // Formate le vendeur avec email et téléphone
     const formattedSeller = {
       id: seller.id,
       name: seller.fullName,
+      email: seller.email || null,       // ✅ email ajouté
+      phone: seller.phone || null,       // ✅ numéro ajouté
       companyName: seller.companyName || null,
       address: seller.address || null,
       profilePhoto: seller.profile_photo
