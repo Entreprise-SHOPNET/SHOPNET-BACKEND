@@ -899,17 +899,17 @@ router.post('/:id/paiement', authenticateUser, upload.single('preuve'), async (r
       });
     }
 
-    // VÉRIFIER BOUTIQUE
+    // Récupérer la boutique sans filtrer sur le statut
     const [boutiques] = await db.query(
       `SELECT * FROM boutiques_premium 
-       WHERE id = ? AND utilisateur_id = ? AND statut = 'pending_payment'`,
+       WHERE id = ? AND utilisateur_id = ?`,
       [boutiqueId, userId]
     );
 
     if (boutiques.length === 0) {
       return res.status(404).json({
         success: false,
-        message: 'Boutique non trouvée ou déjà traitée'
+        message: 'Boutique non trouvée'
       });
     }
 
@@ -954,11 +954,11 @@ router.post('/:id/paiement', authenticateUser, upload.single('preuve'), async (r
         }
       );
 
-      // METTRE À JOUR STATUT BOUTIQUE
+      // METTRE À JOUR STATUT BOUTIQUE uniquement si la boutique n'est pas déjà en pending_validation
       await db.query(
         `UPDATE boutiques_premium 
          SET statut = 'pending_validation', updated_at = NOW()
-         WHERE id = ?`,
+         WHERE id = ? AND statut != 'pending_validation'`,
         [boutiqueId]
       );
 
@@ -966,8 +966,8 @@ router.post('/:id/paiement', authenticateUser, upload.single('preuve'), async (r
       await db.query(
         `INSERT INTO historique_boutique_premium 
          (boutique_id, ancien_statut, nouveau_statut, notes, created_at)
-         VALUES (?, 'pending_payment', 'pending_validation', 'Preuve paiement soumise', NOW())`,
-        [boutiqueId]
+         VALUES (?, ?, 'pending_validation', 'Preuve paiement soumise', NOW())`,
+        [boutiqueId, boutiques[0].statut]
       );
 
       // NOTIFICATIONS
