@@ -1016,6 +1016,100 @@ router.post('/:id/paiement', authenticateUser, upload.single('preuve'), async (r
   }
 });
 
+
+
+
+
+
+
+
+
+// ======================
+// ✅ DISCOVER - BOUTIQUES PROCHES (Haversine)
+// ======================
+router.get('/discover/nearby', async (req, res) => {
+  try {
+    const db = req.db;
+
+    const {
+      latitude,
+      longitude,
+      radius = 20, // rayon en km (par défaut 20km)
+      page = 1,
+      limit = 20
+    } = req.query;
+
+    if (!latitude || !longitude) {
+      return res.status(400).json({
+        success: false,
+        message: 'Latitude et longitude sont requises'
+      });
+    }
+
+    const lat = parseFloat(latitude);
+    const lng = parseFloat(longitude);
+    const rayon = parseFloat(radius);
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+
+    // Formule Haversine en SQL
+    const [shops] = await db.query(
+      `
+      SELECT 
+        bp.id,
+        bp.nom,
+        bp.logo,
+        bp.description,
+        bp.ville,
+        bp.pays,
+        bp.latitude,
+        bp.longitude,
+        bp.type_boutique,
+        bp.date_activation,
+        (
+          6371 * ACOS(
+            COS(RADIANS(?)) *
+            COS(RADIANS(bp.latitude)) *
+            COS(RADIANS(bp.longitude) - RADIANS(?)) +
+            SIN(RADIANS(?)) *
+            SIN(RADIANS(bp.latitude))
+          )
+        ) AS distance
+      FROM boutiques_premium bp
+      WHERE bp.statut = 'active'
+      AND bp.latitude IS NOT NULL
+      AND bp.longitude IS NOT NULL
+      HAVING distance <= ?
+      ORDER BY distance ASC
+      LIMIT ? OFFSET ?
+      `,
+      [
+        lat,
+        lng,
+        lat,
+        rayon,
+        parseInt(limit),
+        offset
+      ]
+    );
+
+    res.json({
+      success: true,
+      count: shops.length,
+      page: parseInt(page),
+      radius_km: rayon,
+      shops
+    });
+
+  } catch (error) {
+    console.error('❌ Erreur GET /discover/nearby:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erreur serveur'
+    });
+  }
+});
+
+
 // ======================
 // 6. ROUTES ADMIN (SANS MIDDLEWARE - À PROTÉGER EN PRODUCTION)
 // ======================
