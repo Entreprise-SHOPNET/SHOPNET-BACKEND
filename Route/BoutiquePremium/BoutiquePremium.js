@@ -1027,6 +1027,9 @@ router.post('/:id/paiement', authenticateUser, upload.single('preuve'), async (r
 // ======================
 // ✅ DISCOVER - BOUTIQUES PROCHES (Haversine)
 // ======================
+// ======================
+// ✅ DISCOVER - BOUTIQUES PROCHES (Haversine)
+// ======================
 router.get('/discover/nearby', async (req, res) => {
   try {
     const db = req.db;
@@ -1034,7 +1037,7 @@ router.get('/discover/nearby', async (req, res) => {
     const {
       latitude,
       longitude,
-      radius = 20, // rayon en km (par défaut 20km)
+      radius = 20,
       page = 1,
       limit = 20
     } = req.query;
@@ -1051,7 +1054,6 @@ router.get('/discover/nearby', async (req, res) => {
     const rayon = parseFloat(radius);
     const offset = (parseInt(page) - 1) * parseInt(limit);
 
-    // Formule Haversine en SQL
     const [shops] = await db.query(
       `
       SELECT 
@@ -1075,7 +1077,7 @@ router.get('/discover/nearby', async (req, res) => {
           )
         ) AS distance
       FROM boutiques_premium bp
-      WHERE bp.statut = 'active'
+      WHERE bp.statut = 'validé'
       AND bp.latitude IS NOT NULL
       AND bp.longitude IS NOT NULL
       HAVING distance <= ?
@@ -1108,6 +1110,7 @@ router.get('/discover/nearby', async (req, res) => {
     });
   }
 });
+
 
 
 // ======================
