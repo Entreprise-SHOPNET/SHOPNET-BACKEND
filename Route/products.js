@@ -166,9 +166,8 @@ router.get('/', async (req, res) => {
 
 
 
-
 // ===============================
-// ✅ DISCOVER - DÉTAIL PRODUIT PUBLIC
+// ✅ DISCOVER - DÉTAIL PRODUIT PUBLIC (CORRIGÉ)
 // ===============================
 
 router.get('/discover/product/:id', async (req, res) => {
@@ -239,28 +238,60 @@ router.get('/discover/product/:id', async (req, res) => {
     // =========================
     // 3️⃣ PRODUITS SIMILAIRES (même catégorie)
     // =========================
-    const [similar] = await db.query(`
-      SELECT id, title, price, image_url
-      FROM products
-      WHERE category = ?
-      AND id != ?
-      AND (is_active = 1 OR is_active IS NULL)
-      ORDER BY created_at DESC
+    const [similarRaw] = await db.query(`
+      SELECT 
+        p.id,
+        p.title,
+        p.price,
+        (
+          SELECT pi.absolute_url
+          FROM product_images pi
+          WHERE pi.product_id = p.id
+          LIMIT 1
+        ) AS image_url
+      FROM products p
+      WHERE p.category = ?
+      AND p.id != ?
+      AND (p.is_active = 1 OR p.is_active IS NULL)
+      ORDER BY p.created_at DESC
       LIMIT 6
     `, [product.category, productId]);
+
+    const similar = similarRaw.map(p => ({
+      id: p.id,
+      title: p.title,
+      price: parseFloat(p.price) || 0,
+      image_url: p.image_url || null
+    }));
 
     // =========================
     // 4️⃣ PRODUITS DU MÊME VENDEUR
     // =========================
-    const [sameSeller] = await db.query(`
-      SELECT id, title, price, image_url
-      FROM products
-      WHERE seller_id = ?
-      AND id != ?
-      AND (is_active = 1 OR is_active IS NULL)
-      ORDER BY created_at DESC
+    const [sameSellerRaw] = await db.query(`
+      SELECT 
+        p.id,
+        p.title,
+        p.price,
+        (
+          SELECT pi.absolute_url
+          FROM product_images pi
+          WHERE pi.product_id = p.id
+          LIMIT 1
+        ) AS image_url
+      FROM products p
+      WHERE p.seller_id = ?
+      AND p.id != ?
+      AND (p.is_active = 1 OR p.is_active IS NULL)
+      ORDER BY p.created_at DESC
       LIMIT 6
     `, [product.seller_id, productId]);
+
+    const sameSeller = sameSellerRaw.map(p => ({
+      id: p.id,
+      title: p.title,
+      price: parseFloat(p.price) || 0,
+      image_url: p.image_url || null
+    }));
 
     // =========================
     // 5️⃣ FORMATAGE FINAL
@@ -313,82 +344,6 @@ router.get('/discover/product/:id', async (req, res) => {
     });
   }
 });
-
-
-// ----------------------------
-// GET /products/:id — Détail d’un produit (inchangé)
-// ----------------------------
-router.get('/:id', authMiddleware, async (req, res) => {
-  try {
-    const productId = req.params.id;
-    const userId = req.userId;
-
-    const [rows] = await db.query(`
-      SELECT 
-        p.*,
-        u.id AS seller_id,
-        u.fullName AS seller_name,
-        u.phone AS seller_phone,
-        u.email AS seller_email,
-        u.address AS seller_address,
-        u.profile_photo AS seller_avatar,
-        (SELECT COUNT(*) FROM product_comments pc WHERE pc.product_id = p.id) AS comments_count,
-        (SELECT COUNT(*) FROM product_likes pl WHERE pl.product_id = p.id) AS likes_count,
-        EXISTS (
-          SELECT 1 FROM product_likes pl WHERE pl.product_id = p.id AND pl.user_id = ?
-        ) AS isLiked,
-        IFNULL((SELECT JSON_ARRAYAGG(pi.image_path) FROM product_images pi WHERE pi.product_id = p.id), JSON_ARRAY()) AS images,
-        IFNULL((SELECT JSON_ARRAYAGG(pi.absolute_url) FROM product_images pi WHERE pi.product_id = p.id), JSON_ARRAY()) AS image_urls
-      FROM products p
-      LEFT JOIN utilisateurs u ON p.seller_id = u.id
-      WHERE p.id = ?
-      LIMIT 1
-    `, [userId, productId]);
-
-    if (!rows || rows.length === 0) {
-      return res.status(404).json({ success: false, error: 'Produit introuvable' });
-    }
-
-    const product = rows[0];
-    const formatted = {
-      id: product.id,
-      title: product.title,
-      description: product.description || null,
-      price: parseFloat(product.price) || 0,
-      original_price: product.original_price ? parseFloat(product.original_price) : null,
-      category: product.category,
-      condition: product.condition,
-      stock: parseInt(product.stock) || 0,
-      location: product.location,
-      created_at: product.created_at,
-      updated_at: product.updated_at,
-      likes: product.likes_count || 0,
-      comments: product.comments_count || 0,
-      isLiked: Boolean(product.isLiked),
-      images: product.images || [],
-      image_urls: product.image_urls || [],
-      seller: {
-        id: product.seller_id?.toString() || null,
-        name: product.seller_name || null,
-        phone: product.seller_phone || null,
-        email: product.seller_email || null,
-        address: product.seller_address || null,
-        avatar: product.seller_avatar
-          ? (product.seller_avatar.startsWith('http')
-              ? product.seller_avatar
-              : `${req.protocol}://${req.get('host')}${product.seller_avatar}`)
-          : null,
-      }
-    };
-
-    res.json({ success: true, product: formatted });
-  } catch (error) {
-    console.error('Erreur GET /products/:id:', error.message);
-    res.status(500).json({ success: false, error: 'Erreur serveur' });
-  }
-});
-
-
 
 
 // ----------------------------
