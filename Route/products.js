@@ -167,17 +167,15 @@ router.get('/', async (req, res) => {
 
 
 
-
 // ===============================
 // ✅ DISCOVER - DÉTAIL PRODUIT PUBLIC
 // ===============================
 
 router.get('/discover/product/:id', async (req, res) => {
   try {
-    const db = req.db;
     const productId = parseInt(req.params.id);
 
-    if (!productId) {
+    if (!productId || isNaN(productId)) {
       return res.status(400).json({
         success: false,
         message: 'ID produit invalide'
@@ -185,7 +183,7 @@ router.get('/discover/product/:id', async (req, res) => {
     }
 
     // =========================
-    // 1️⃣ RÉCUPÉRATION PRODUIT + VENDEUR + BOUTIQUE
+    // 1️⃣ PRODUIT + VENDEUR + BOUTIQUE ACTIVE
     // =========================
     const [rows] = await db.query(`
       SELECT 
@@ -197,15 +195,20 @@ router.get('/discover/product/:id', async (req, res) => {
         u.address AS seller_address,
         u.latitude AS seller_latitude,
         u.longitude AS seller_longitude,
+
         bp.id AS boutique_id,
         bp.nom AS boutique_nom,
         bp.adresse AS boutique_adresse,
         bp.ville AS boutique_ville,
         bp.latitude AS boutique_latitude,
         bp.longitude AS boutique_longitude
+
       FROM products p
       LEFT JOIN utilisateurs u ON p.seller_id = u.id
-      LEFT JOIN boutiques_premium bp ON bp.utilisateur_id = u.id
+      LEFT JOIN boutiques_premium bp 
+        ON bp.utilisateur_id = u.id 
+        AND bp.statut IN ('validé','active')
+
       WHERE p.id = ?
       AND (p.is_active = 1 OR p.is_active IS NULL)
       LIMIT 1
@@ -229,17 +232,15 @@ router.get('/discover/product/:id', async (req, res) => {
       WHERE product_id = ?
     `, [productId]);
 
-    const images = imagesRows.map(img => img.absolute_url);
+    const images = imagesRows
+      .filter(img => img.absolute_url)
+      .map(img => img.absolute_url);
 
     // =========================
-    // 3️⃣ PRODUITS SIMILAIRES
+    // 3️⃣ PRODUITS SIMILAIRES (même catégorie)
     // =========================
     const [similar] = await db.query(`
-      SELECT 
-        id,
-        title,
-        price,
-        image_url
+      SELECT id, title, price, image_url
       FROM products
       WHERE category = ?
       AND id != ?
@@ -249,14 +250,10 @@ router.get('/discover/product/:id', async (req, res) => {
     `, [product.category, productId]);
 
     // =========================
-    // 4️⃣ PRODUITS MÊME BOUTIQUE
+    // 4️⃣ PRODUITS DU MÊME VENDEUR
     // =========================
     const [sameSeller] = await db.query(`
-      SELECT 
-        id,
-        title,
-        price,
-        image_url
+      SELECT id, title, price, image_url
       FROM products
       WHERE seller_id = ?
       AND id != ?
@@ -274,25 +271,27 @@ router.get('/discover/product/:id', async (req, res) => {
         id: product.id,
         title: product.title,
         description: product.description,
-        price: parseFloat(product.price),
-        original_price: product.original_price ? parseFloat(product.original_price) : null,
+        price: parseFloat(product.price) || 0,
+        original_price: product.original_price
+          ? parseFloat(product.original_price)
+          : null,
         category: product.category,
         condition: product.condition,
-        stock: product.stock,
+        stock: parseInt(product.stock) || 0,
         location: product.location,
         created_at: product.created_at,
         latitude: product.latitude,
         longitude: product.longitude,
         images
       },
-      boutique: {
+      boutique: product.boutique_id ? {
         id: product.boutique_id,
         nom: product.boutique_nom,
         adresse: product.boutique_adresse,
         ville: product.boutique_ville,
         latitude: product.boutique_latitude,
         longitude: product.boutique_longitude
-      },
+      } : null,
       seller: {
         id: product.seller_id,
         nom: product.seller_name,
@@ -314,8 +313,6 @@ router.get('/discover/product/:id', async (req, res) => {
     });
   }
 });
-
-
 
 
 // ----------------------------
