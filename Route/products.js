@@ -466,5 +466,156 @@ router.delete('/:id', authMiddleware, async (req, res) => {
   }
 });
 
+
+
+
+// ===============================
+// ✅ DISCOVER - DÉTAIL PRODUIT PUBLIC
+// ===============================
+
+router.get('/discover/product/:id', async (req, res) => {
+  try {
+    const db = req.db;
+    const productId = parseInt(req.params.id);
+
+    if (!productId) {
+      return res.status(400).json({
+        success: false,
+        message: 'ID produit invalide'
+      });
+    }
+
+    // =========================
+    // 1️⃣ RÉCUPÉRATION PRODUIT + VENDEUR + BOUTIQUE
+    // =========================
+    const [rows] = await db.query(`
+      SELECT 
+        p.*,
+        u.id AS seller_id,
+        u.fullName AS seller_name,
+        u.phone AS seller_phone,
+        u.email AS seller_email,
+        u.address AS seller_address,
+        u.latitude AS seller_latitude,
+        u.longitude AS seller_longitude,
+        bp.id AS boutique_id,
+        bp.nom AS boutique_nom,
+        bp.adresse AS boutique_adresse,
+        bp.ville AS boutique_ville,
+        bp.latitude AS boutique_latitude,
+        bp.longitude AS boutique_longitude
+      FROM products p
+      LEFT JOIN utilisateurs u ON p.seller_id = u.id
+      LEFT JOIN boutiques_premium bp ON bp.utilisateur_id = u.id
+      WHERE p.id = ?
+      AND (p.is_active = 1 OR p.is_active IS NULL)
+      LIMIT 1
+    `, [productId]);
+
+    if (!rows.length) {
+      return res.status(404).json({
+        success: false,
+        message: 'Produit introuvable'
+      });
+    }
+
+    const product = rows[0];
+
+    // =========================
+    // 2️⃣ IMAGES PRODUIT
+    // =========================
+    const [imagesRows] = await db.query(`
+      SELECT absolute_url 
+      FROM product_images
+      WHERE product_id = ?
+    `, [productId]);
+
+    const images = imagesRows.map(img => img.absolute_url);
+
+    // =========================
+    // 3️⃣ PRODUITS SIMILAIRES
+    // =========================
+    const [similar] = await db.query(`
+      SELECT 
+        id,
+        title,
+        price,
+        image_url
+      FROM products
+      WHERE category = ?
+      AND id != ?
+      AND (is_active = 1 OR is_active IS NULL)
+      ORDER BY created_at DESC
+      LIMIT 6
+    `, [product.category, productId]);
+
+    // =========================
+    // 4️⃣ PRODUITS MÊME BOUTIQUE
+    // =========================
+    const [sameSeller] = await db.query(`
+      SELECT 
+        id,
+        title,
+        price,
+        image_url
+      FROM products
+      WHERE seller_id = ?
+      AND id != ?
+      AND (is_active = 1 OR is_active IS NULL)
+      ORDER BY created_at DESC
+      LIMIT 6
+    `, [product.seller_id, productId]);
+
+    // =========================
+    // 5️⃣ FORMATAGE FINAL
+    // =========================
+    res.json({
+      success: true,
+      product: {
+        id: product.id,
+        title: product.title,
+        description: product.description,
+        price: parseFloat(product.price),
+        original_price: product.original_price ? parseFloat(product.original_price) : null,
+        category: product.category,
+        condition: product.condition,
+        stock: product.stock,
+        location: product.location,
+        created_at: product.created_at,
+        latitude: product.latitude,
+        longitude: product.longitude,
+        images
+      },
+      boutique: {
+        id: product.boutique_id,
+        nom: product.boutique_nom,
+        adresse: product.boutique_adresse,
+        ville: product.boutique_ville,
+        latitude: product.boutique_latitude,
+        longitude: product.boutique_longitude
+      },
+      seller: {
+        id: product.seller_id,
+        nom: product.seller_name,
+        phone: product.seller_phone,
+        email: product.seller_email,
+        adresse: product.seller_address,
+        latitude: product.seller_latitude,
+        longitude: product.seller_longitude
+      },
+      similar_products: similar,
+      same_seller_products: sameSeller
+    });
+
+  } catch (error) {
+    console.error('❌ Erreur GET /discover/product/:id:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erreur serveur'
+    });
+  }
+});
+
+
 module.exports = router;
 
