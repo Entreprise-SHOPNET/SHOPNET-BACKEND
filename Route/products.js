@@ -307,11 +307,15 @@ router.post('/', authMiddleware, (req, res) => {
 // ✅ DISCOVER - PAGE BOUTIQUE PUBLIQUE PAGINÉE  CETTE PAGE CE POUR LES DONNER DE BOUTIQUE COTER ACHETEUR
 // ===============================================
 
+// ===============================================
+// ✅ DISCOVER - BOUTIQUE PUBLIQUE COMPLETE + PAGINATION
+// ===============================================
+
 router.get('/discover/shop/:id', async (req, res) => {
   try {
     const boutiqueId = parseInt(req.params.id);
     const page = parseInt(req.query.page) || 1;
-    const limit = 5; // 🔥 5 produits par scroll
+    const limit = 5;
     const offset = (page - 1) * limit;
 
     if (!boutiqueId || isNaN(boutiqueId)) {
@@ -321,20 +325,32 @@ router.get('/discover/shop/:id', async (req, res) => {
       });
     }
 
-    // ===============================
-    // 1️⃣ RECUPERATION BOUTIQUE ACTIVE
-    // ===============================
+    // ==========================================
+    // 1️⃣ RECUPERATION BOUTIQUE + VENDEUR
+    // ==========================================
     const [boutiqueRows] = await db.query(`
       SELECT 
-        bp.*,
+        bp.id,
+        bp.nom,
+        bp.description,
+        bp.logo,
+        bp.email AS boutique_email,
+        bp.phone AS boutique_phone,
+        bp.ville,
+        bp.pays,
+        bp.latitude,
+        bp.longitude,
+        bp.statut,
+        bp.date_creation,
+
         u.id AS seller_id,
-        u.fullName,
+        u.fullName AS seller_name,
         u.email AS seller_email,
         u.phone AS seller_phone,
         u.profile_photo,
-        u.cover_photo,
         u.rating,
         u.is_verified
+
       FROM boutiques_premium bp
       JOIN utilisateurs u ON bp.utilisateur_id = u.id
       WHERE bp.id = ?
@@ -351,9 +367,9 @@ router.get('/discover/shop/:id', async (req, res) => {
 
     const boutique = boutiqueRows[0];
 
-    // ===============================
-    // 2️⃣ TOTAL PRODUITS (POUR PAGINATION)
-    // ===============================
+    // ==========================================
+    // 2️⃣ TOTAL PRODUITS POUR PAGINATION
+    // ==========================================
     const [[{ total }]] = await db.query(`
       SELECT COUNT(*) AS total
       FROM products
@@ -361,12 +377,24 @@ router.get('/discover/shop/:id', async (req, res) => {
       AND (is_active = 1 OR is_active IS NULL)
     `, [boutique.seller_id]);
 
-    // ===============================
-    // 3️⃣ PRODUITS PAGINÉS
-    // ===============================
+    // ==========================================
+    // 3️⃣ PRODUITS PAGINÉS (5 PAR SCROLL)
+    // ==========================================
     const [products] = await db.query(`
       SELECT 
-        p.*,
+        p.id,
+        p.title,
+        p.price,
+        p.original_price,
+        p.stock,
+        p.condition,
+        p.likes_count,
+        p.views_count,
+        p.views,
+        p.sales,
+        p.is_boosted,
+        p.created_at,
+
         COALESCE(
           (SELECT absolute_url 
            FROM product_images 
@@ -378,6 +406,7 @@ router.get('/discover/shop/:id', async (req, res) => {
            LIMIT 1),
           p.image_url
         ) AS primary_image
+
       FROM products p
       WHERE p.seller_id = ?
       AND (p.is_active = 1 OR p.is_active IS NULL)
@@ -396,7 +425,7 @@ router.get('/discover/shop/:id', async (req, res) => {
         ? parseFloat(p.original_price)
         : null,
       image: p.primary_image || null,
-      stock: p.stock,
+      stock: p.stock || 0,
       condition: p.condition,
       likes: p.likes_count || 0,
       views: p.views_count || p.views || 0,
@@ -405,9 +434,9 @@ router.get('/discover/shop/:id', async (req, res) => {
       created_at: p.created_at
     }));
 
-    // ===============================
-    // 4️⃣ RESPONSE
-    // ===============================
+    // ==========================================
+    // 4️⃣ REPONSE FINALE
+    // ==========================================
     res.json({
       success: true,
       boutique: {
@@ -415,9 +444,23 @@ router.get('/discover/shop/:id', async (req, res) => {
         nom: boutique.nom,
         description: boutique.description,
         logo: boutique.logo,
+        email: boutique.boutique_email,
+        phone: boutique.boutique_phone,
         ville: boutique.ville,
+        pays: boutique.pays,
         latitude: boutique.latitude,
-        longitude: boutique.longitude
+        longitude: boutique.longitude,
+        statut: boutique.statut,
+        date_creation: boutique.date_creation
+      },
+      seller: {
+        id: boutique.seller_id,
+        nom: boutique.seller_name,
+        email: boutique.seller_email,
+        phone: boutique.seller_phone,
+        avatar: boutique.profile_photo,
+        rating: boutique.rating || 0,
+        verified: Boolean(boutique.is_verified)
       },
       pagination: {
         page,
