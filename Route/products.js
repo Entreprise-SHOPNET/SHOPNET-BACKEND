@@ -299,6 +299,193 @@ router.post('/', authMiddleware, (req, res) => {
 
 
 
+// ===============================
+// ✅ DISCOVER - DÉTAIL PRODUIT PUBLIC (CORRIGÉ)
+// ===============================
+
+router.get('/discover/product/:id', async (req, res) => {
+  try {
+    const productId = parseInt(req.params.id);
+
+    if (!productId || isNaN(productId)) {
+      return res.status(400).json({
+        success: false,
+        message: 'ID produit invalide'
+      });
+    }
+
+    // =========================
+    // 1️⃣ PRODUIT + VENDEUR + BOUTIQUE ACTIVE
+    // =========================
+    const [rows] = await db.query(`
+      SELECT 
+        p.*,
+        u.id AS seller_id,
+        u.fullName AS seller_name,
+        u.phone AS seller_phone,
+        u.email AS seller_email,
+        u.address AS seller_address,
+        u.latitude AS seller_latitude,
+        u.longitude AS seller_longitude,
+
+        bp.id AS boutique_id,
+        bp.nom AS boutique_nom,
+        bp.adresse AS boutique_adresse,
+        bp.ville AS boutique_ville,
+        bp.latitude AS boutique_latitude,
+        bp.longitude AS boutique_longitude
+
+      FROM products p
+      LEFT JOIN utilisateurs u ON p.seller_id = u.id
+      LEFT JOIN boutiques_premium bp 
+        ON bp.utilisateur_id = u.id 
+        AND bp.statut IN ('validé','active')
+
+      WHERE p.id = ?
+      AND (p.is_active = 1 OR p.is_active IS NULL)
+      LIMIT 1
+    `, [productId]);
+
+    if (!rows.length) {
+      return res.status(404).json({
+        success: false,
+        message: 'Produit introuvable'
+      });
+    }
+
+    const product = rows[0];
+
+    // =========================
+    // 2️⃣ IMAGES PRODUIT
+    // =========================
+    const [imagesRows] = await db.query(`
+      SELECT absolute_url 
+      FROM product_images
+      WHERE product_id = ?
+    `, [productId]);
+
+    const images = imagesRows
+      .filter(img => img.absolute_url)
+      .map(img => img.absolute_url);
+
+    // =========================
+    // 3️⃣ PRODUITS SIMILAIRES (même catégorie)
+    // =========================
+    const [similarRaw] = await db.query(`
+      SELECT 
+        p.id,
+        p.title,
+        p.price,
+        (
+          SELECT pi.absolute_url
+          FROM product_images pi
+          WHERE pi.product_id = p.id
+          LIMIT 1
+        ) AS image_url
+      FROM products p
+      WHERE p.category = ?
+      AND p.id != ?
+      AND (p.is_active = 1 OR p.is_active IS NULL)
+      ORDER BY p.created_at DESC
+      LIMIT 6
+    `, [product.category, productId]);
+
+    const similar = similarRaw.map(p => ({
+      id: p.id,
+      title: p.title,
+      price: parseFloat(p.price) || 0,
+      image_url: p.image_url || null
+    }));
+
+    // =========================
+    // 4️⃣ PRODUITS DU MÊME VENDEUR
+    // =========================
+    const [sameSellerRaw] = await db.query(`
+      SELECT 
+        p.id,
+        p.title,
+        p.price,
+        (
+          SELECT pi.absolute_url
+          FROM product_images pi
+          WHERE pi.product_id = p.id
+          LIMIT 1
+        ) AS image_url
+      FROM products p
+      WHERE p.seller_id = ?
+      AND p.id != ?
+      AND (p.is_active = 1 OR p.is_active IS NULL)
+      ORDER BY p.created_at DESC
+      LIMIT 6
+    `, [product.seller_id, productId]);
+
+    const sameSeller = sameSellerRaw.map(p => ({
+      id: p.id,
+      title: p.title,
+      price: parseFloat(p.price) || 0,
+      image_url: p.image_url || null
+    }));
+
+    // =========================
+    // 5️⃣ FORMATAGE FINAL
+    // =========================
+    res.json({
+      success: true,
+      product: {
+        id: product.id,
+        title: product.title,
+        description: product.description,
+        price: parseFloat(product.price) || 0,
+        original_price: product.original_price
+          ? parseFloat(product.original_price)
+          : null,
+        category: product.category,
+        condition: product.condition,
+        stock: parseInt(product.stock) || 0,
+        location: product.location,
+        created_at: product.created_at,
+        latitude: product.latitude,
+        longitude: product.longitude,
+        images
+      },
+      boutique: product.boutique_id ? {
+        id: product.boutique_id,
+        nom: product.boutique_nom,
+        adresse: product.boutique_adresse,
+        ville: product.boutique_ville,
+        latitude: product.boutique_latitude,
+        longitude: product.boutique_longitude
+      } : null,
+      seller: {
+        id: product.seller_id,
+        nom: product.seller_name,
+        phone: product.seller_phone,
+        email: product.seller_email,
+        adresse: product.seller_address,
+        latitude: product.seller_latitude,
+        longitude: product.seller_longitude
+      },
+      similar_products: similar,
+      same_seller_products: sameSeller
+    });
+
+  } catch (error) {
+    console.error('❌ Erreur GET /discover/product/:id:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Erreur serveur'
+    });
+  }
+});
+
+
+
+
+
+// Page de ID 
+
+
+
 
 // ----------------------------
 // DELETE /products/:id — Supprimer un produit
