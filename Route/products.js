@@ -580,6 +580,115 @@ router.delete('/:id', authMiddleware, async (req, res) => {
 
 
 
+// Route pour le ID Proteger des produits de SHOPNET Deals
+// ----------------------------
+// GET /products/:id — Détail d’un produit (PROTÉGÉ)
+// ----------------------------
+router.get('/:id', authMiddleware, async (req, res) => {
+  try {
+    const productId = req.params.id;
+    const userId = req.userId;
+
+    const [rows] = await db.query(`
+      SELECT 
+        p.*,
+        u.id AS seller_id,
+        u.fullName AS seller_name,
+        u.phone AS seller_phone,
+        u.email AS seller_email,
+        u.address AS seller_address,
+        u.profile_photo AS seller_avatar,
+
+        (SELECT COUNT(*) 
+         FROM product_comments pc 
+         WHERE pc.product_id = p.id) AS comments_count,
+
+        (SELECT COUNT(*) 
+         FROM product_likes pl 
+         WHERE pl.product_id = p.id) AS likes_count,
+
+        EXISTS (
+          SELECT 1 
+          FROM product_likes pl 
+          WHERE pl.product_id = p.id 
+          AND pl.user_id = ?
+        ) AS isLiked,
+
+        IFNULL(
+          (SELECT JSON_ARRAYAGG(pi.image_path) 
+           FROM product_images pi 
+           WHERE pi.product_id = p.id),
+        JSON_ARRAY()) AS images,
+
+        IFNULL(
+          (SELECT JSON_ARRAYAGG(pi.absolute_url) 
+           FROM product_images pi 
+           WHERE pi.product_id = p.id),
+        JSON_ARRAY()) AS image_urls
+
+      FROM products p
+      LEFT JOIN utilisateurs u ON p.seller_id = u.id
+      WHERE p.id = ?
+      LIMIT 1
+    `, [userId, productId]);
+
+    if (!rows || rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Produit introuvable'
+      });
+    }
+
+    const product = rows[0];
+
+    const formatted = {
+      id: product.id,
+      title: product.title,
+      description: product.description || null,
+      price: parseFloat(product.price) || 0,
+      original_price: product.original_price 
+        ? parseFloat(product.original_price) 
+        : null,
+      category: product.category,
+      condition: product.condition,
+      stock: parseInt(product.stock) || 0,
+      location: product.location,
+      created_at: product.created_at,
+      updated_at: product.updated_at,
+      likes: product.likes_count || 0,
+      comments: product.comments_count || 0,
+      isLiked: Boolean(product.isLiked),
+      images: product.images || [],
+      image_urls: product.image_urls || [],
+      seller: {
+        id: product.seller_id?.toString() || null,
+        name: product.seller_name || null,
+        phone: product.seller_phone || null,
+        email: product.seller_email || null,
+        address: product.seller_address || null,
+        avatar: product.seller_avatar
+          ? (product.seller_avatar.startsWith('http')
+              ? product.seller_avatar
+              : `${req.protocol}://${req.get('host')}${product.seller_avatar}`)
+          : null,
+      }
+    };
+
+    res.json({
+      success: true,
+      product: formatted
+    });
+
+  } catch (error) {
+    console.error('Erreur GET /products/:id:', error.message);
+    res.status(500).json({
+      success: false,
+      error: 'Erreur serveur'
+    });
+  }
+});
+
+
 
 module.exports = router;
 
