@@ -299,6 +299,147 @@ router.post('/', authMiddleware, (req, res) => {
 
 
 
+
+
+
+
+// ===============================================
+// ✅ DISCOVER - PAGE BOUTIQUE PUBLIQUE PAGINÉE  CETTE PAGE CE POUR LES DONNER DE BOUTIQUE COTER ACHETEUR
+// ===============================================
+
+router.get('/discover/shop/:id', async (req, res) => {
+  try {
+    const boutiqueId = parseInt(req.params.id);
+    const page = parseInt(req.query.page) || 1;
+    const limit = 5; // 🔥 5 produits par scroll
+    const offset = (page - 1) * limit;
+
+    if (!boutiqueId || isNaN(boutiqueId)) {
+      return res.status(400).json({
+        success: false,
+        message: "ID boutique invalide"
+      });
+    }
+
+    // ===============================
+    // 1️⃣ RECUPERATION BOUTIQUE ACTIVE
+    // ===============================
+    const [boutiqueRows] = await db.query(`
+      SELECT 
+        bp.*,
+        u.id AS seller_id,
+        u.fullName,
+        u.email AS seller_email,
+        u.phone AS seller_phone,
+        u.profile_photo,
+        u.cover_photo,
+        u.rating,
+        u.is_verified
+      FROM boutiques_premium bp
+      JOIN utilisateurs u ON bp.utilisateur_id = u.id
+      WHERE bp.id = ?
+      AND bp.statut IN ('validé','active')
+      LIMIT 1
+    `, [boutiqueId]);
+
+    if (!boutiqueRows.length) {
+      return res.status(404).json({
+        success: false,
+        message: "Boutique introuvable ou inactive"
+      });
+    }
+
+    const boutique = boutiqueRows[0];
+
+    // ===============================
+    // 2️⃣ TOTAL PRODUITS (POUR PAGINATION)
+    // ===============================
+    const [[{ total }]] = await db.query(`
+      SELECT COUNT(*) AS total
+      FROM products
+      WHERE seller_id = ?
+      AND (is_active = 1 OR is_active IS NULL)
+    `, [boutique.seller_id]);
+
+    // ===============================
+    // 3️⃣ PRODUITS PAGINÉS
+    // ===============================
+    const [products] = await db.query(`
+      SELECT 
+        p.*,
+        COALESCE(
+          (SELECT absolute_url 
+           FROM product_images 
+           WHERE product_id = p.id AND is_primary = 1 
+           LIMIT 1),
+          (SELECT absolute_url 
+           FROM product_images 
+           WHERE product_id = p.id 
+           LIMIT 1),
+          p.image_url
+        ) AS primary_image
+      FROM products p
+      WHERE p.seller_id = ?
+      AND (p.is_active = 1 OR p.is_active IS NULL)
+      ORDER BY 
+        p.is_boosted DESC,
+        p.boost_priority DESC,
+        p.created_at DESC
+      LIMIT ? OFFSET ?
+    `, [boutique.seller_id, limit, offset]);
+
+    const formattedProducts = products.map(p => ({
+      id: p.id,
+      title: p.title,
+      price: parseFloat(p.price) || 0,
+      original_price: p.original_price
+        ? parseFloat(p.original_price)
+        : null,
+      image: p.primary_image || null,
+      stock: p.stock,
+      condition: p.condition,
+      likes: p.likes_count || 0,
+      views: p.views_count || p.views || 0,
+      sales: p.sales || 0,
+      is_boosted: Boolean(p.is_boosted),
+      created_at: p.created_at
+    }));
+
+    // ===============================
+    // 4️⃣ RESPONSE
+    // ===============================
+    res.json({
+      success: true,
+      boutique: {
+        id: boutique.id,
+        nom: boutique.nom,
+        description: boutique.description,
+        logo: boutique.logo,
+        ville: boutique.ville,
+        latitude: boutique.latitude,
+        longitude: boutique.longitude
+      },
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+        hasNextPage: page < Math.ceil(total / limit)
+      },
+      products: formattedProducts
+    });
+
+  } catch (error) {
+    console.error("❌ Erreur GET /discover/shop/:id :", error);
+    res.status(500).json({
+      success: false,
+      message: "Erreur serveur"
+    });
+  }
+});
+
+
+
 // ===============================
 // ✅ DISCOVER - DÉTAIL PRODUIT PUBLIC (CORRIGÉ)
 // ===============================
