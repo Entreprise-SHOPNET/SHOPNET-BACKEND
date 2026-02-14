@@ -298,18 +298,12 @@ router.post('/', authMiddleware, (req, res) => {
 });
 
 
-
-
-
-
-
 // ===============================================
 // ✅ DISCOVER - PAGE BOUTIQUE PUBLIQUE PAGINÉE  CETTE PAGE CE POUR LES DONNER DE BOUTIQUE COTER ACHETEUR
 // ===============================================
-
 // ===============================================
-// ✅ DISCOVER - BOUTIQUE PUBLIQUE COMPLETE + PAGINATION
-// ===============================================
+// ✅ DISCOVER - BOUTIQUE PUBLIQUE COMPLETE (TOUS PRODUITS)
+/// ===============================================
 
 router.get('/discover/shop/:id', async (req, res) => {
   try {
@@ -325,76 +319,49 @@ router.get('/discover/shop/:id', async (req, res) => {
       });
     }
 
-    // ==========================================
-    // 1️⃣ RECUPERATION BOUTIQUE + VENDEUR
-    // ==========================================
+    // =========================
+    // 1️⃣ BOUTIQUE + VENDEUR
+    // =========================
     const [boutiqueRows] = await db.query(`
       SELECT 
-        bp.id,
-        bp.nom,
-        bp.description,
-        bp.logo,
-        bp.email AS boutique_email,
-        bp.phone AS boutique_phone,
-        bp.ville,
-        bp.pays,
-        bp.latitude,
-        bp.longitude,
-        bp.statut,
-        bp.date_creation,
-
+        bp.*,
         u.id AS seller_id,
-        u.fullName AS seller_name,
+        u.fullName,
         u.email AS seller_email,
         u.phone AS seller_phone,
         u.profile_photo,
         u.rating,
         u.is_verified
-
       FROM boutiques_premium bp
       JOIN utilisateurs u ON bp.utilisateur_id = u.id
       WHERE bp.id = ?
-      AND bp.statut IN ('validé','active')
       LIMIT 1
     `, [boutiqueId]);
 
     if (!boutiqueRows.length) {
       return res.status(404).json({
         success: false,
-        message: "Boutique introuvable ou inactive"
+        message: "Boutique introuvable"
       });
     }
 
     const boutique = boutiqueRows[0];
 
-    // ==========================================
-    // 2️⃣ TOTAL PRODUITS POUR PAGINATION
-    // ==========================================
+    // =========================
+    // 2️⃣ TOTAL PRODUITS (SANS FILTRE)
+    // =========================
     const [[{ total }]] = await db.query(`
       SELECT COUNT(*) AS total
       FROM products
       WHERE seller_id = ?
-      AND (is_active = 1 OR is_active IS NULL)
     `, [boutique.seller_id]);
 
-    // ==========================================
-    // 3️⃣ PRODUITS PAGINÉS (5 PAR SCROLL)
-    // ==========================================
+    // =========================
+    // 3️⃣ PRODUITS PAGINÉS
+    // =========================
     const [products] = await db.query(`
       SELECT 
-        p.id,
-        p.title,
-        p.price,
-        p.original_price,
-        p.stock,
-        p.condition,
-        p.likes_count,
-        p.views_count,
-        p.views,
-        p.sales,
-        p.is_boosted,
-        p.created_at,
-
+        p.*,
         COALESCE(
           (SELECT absolute_url 
            FROM product_images 
@@ -406,14 +373,9 @@ router.get('/discover/shop/:id', async (req, res) => {
            LIMIT 1),
           p.image_url
         ) AS primary_image
-
       FROM products p
       WHERE p.seller_id = ?
-      AND (p.is_active = 1 OR p.is_active IS NULL)
-      ORDER BY 
-        p.is_boosted DESC,
-        p.boost_priority DESC,
-        p.created_at DESC
+      ORDER BY p.created_at DESC
       LIMIT ? OFFSET ?
     `, [boutique.seller_id, limit, offset]);
 
@@ -425,18 +387,17 @@ router.get('/discover/shop/:id', async (req, res) => {
         ? parseFloat(p.original_price)
         : null,
       image: p.primary_image || null,
-      stock: p.stock || 0,
+      stock: p.stock,
       condition: p.condition,
       likes: p.likes_count || 0,
       views: p.views_count || p.views || 0,
       sales: p.sales || 0,
-      is_boosted: Boolean(p.is_boosted),
       created_at: p.created_at
     }));
 
-    // ==========================================
-    // 4️⃣ REPONSE FINALE
-    // ==========================================
+    // =========================
+    // 4️⃣ RESPONSE
+    // =========================
     res.json({
       success: true,
       boutique: {
@@ -444,18 +405,13 @@ router.get('/discover/shop/:id', async (req, res) => {
         nom: boutique.nom,
         description: boutique.description,
         logo: boutique.logo,
-        email: boutique.boutique_email,
-        phone: boutique.boutique_phone,
         ville: boutique.ville,
-        pays: boutique.pays,
         latitude: boutique.latitude,
-        longitude: boutique.longitude,
-        statut: boutique.statut,
-        date_creation: boutique.date_creation
+        longitude: boutique.longitude
       },
       seller: {
         id: boutique.seller_id,
-        nom: boutique.seller_name,
+        nom: boutique.fullName,
         email: boutique.seller_email,
         phone: boutique.seller_phone,
         avatar: boutique.profile_photo,
@@ -466,20 +422,20 @@ router.get('/discover/shop/:id', async (req, res) => {
         page,
         limit,
         total,
-        totalPages: Math.ceil(total / limit),
-        hasNextPage: page < Math.ceil(total / limit)
+        totalPages: Math.ceil(total / limit)
       },
       products: formattedProducts
     });
 
   } catch (error) {
-    console.error("❌ Erreur GET /discover/shop/:id :", error);
+    console.error("Erreur boutique publique:", error);
     res.status(500).json({
       success: false,
       message: "Erreur serveur"
     });
   }
 });
+
 
 
 
