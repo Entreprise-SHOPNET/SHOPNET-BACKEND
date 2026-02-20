@@ -74,4 +74,69 @@ router.post("/save-expo-token", async (req, res) => {
   }
 });
 
+
+
+
+
+
+// POST /api/save-fcm-token
+router.post("/save-fcm-token", async (req, res) => {
+  try {
+    console.log("🔹 Requête reçue pour enregistrer un FCM Token");
+    console.log("🔹 Body reçu:", req.body);
+
+    const db = req.db;
+    let { userId, fcmToken } = req.body;
+
+    if (!userId || !fcmToken) {
+      return res.status(400).json({
+        message: "userId et fcmToken sont requis.",
+      });
+    }
+
+    // 🔹 Décodage JWT si nécessaire
+    if (typeof userId === "string" && userId.includes(".")) {
+      try {
+        const decoded = jwt.verify(userId, process.env.JWT_SECRET);
+        userId = decoded.id;
+      } catch (err) {
+        return res.status(400).json({ message: "JWT invalide." });
+      }
+    }
+
+    userId = Number(userId);
+    if (isNaN(userId)) {
+      return res.status(400).json({ message: "userId invalide." });
+    }
+
+    const [result] = await db.query(
+      "UPDATE utilisateurs SET fcmToken = ? WHERE id = ?",
+      [fcmToken, userId]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({ message: "Utilisateur non trouvé." });
+    }
+
+    console.log(`✅ FCM Token enregistré pour l’utilisateur ${userId}`);
+
+    return res.status(200).json({
+      message: "FCM token enregistré avec succès.",
+      userId,
+    });
+
+  } catch (error) {
+    console.error("❌ Erreur serveur save-fcm-token:", error);
+    return res.status(500).json({
+      message: "Erreur serveur.",
+      error: error.message,
+    });
+  }
+});
+
+
+
+
+
+
 module.exports = router;
