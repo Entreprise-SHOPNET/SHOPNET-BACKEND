@@ -77,8 +77,6 @@ router.post("/save-expo-token", async (req, res) => {
 
 
 
-
-
 // POST /api/save-fcm-token
 router.post("/save-fcm-token", async (req, res) => {
   try {
@@ -86,43 +84,24 @@ router.post("/save-fcm-token", async (req, res) => {
     console.log("🔹 Body reçu:", req.body);
 
     const db = req.db;
-    let { userId, fcmToken } = req.body;
+    const { fcmToken } = req.body;
 
-    if (!userId || !fcmToken) {
+    if (!fcmToken) {
       return res.status(400).json({
-        message: "userId et fcmToken sont requis.",
+        message: "fcmToken est requis.",
       });
     }
 
-    // 🔹 Décodage JWT si nécessaire
-    if (typeof userId === "string" && userId.includes(".")) {
-      try {
-        const decoded = jwt.verify(userId, process.env.JWT_SECRET);
-        userId = decoded.id;
-      } catch (err) {
-        return res.status(400).json({ message: "JWT invalide." });
-      }
-    }
-
-    userId = Number(userId);
-    if (isNaN(userId)) {
-      return res.status(400).json({ message: "userId invalide." });
-    }
-
-    const [result] = await db.query(
-      "UPDATE utilisateurs SET fcmToken = ? WHERE id = ?",
-      [fcmToken, userId]
+    // Insérer le token si il n'existe pas déjà
+    await db.query(
+      "INSERT IGNORE INTO deals_devices (fcmToken) VALUES (?)",
+      [fcmToken]
     );
 
-    if (result.affectedRows === 0) {
-      return res.status(404).json({ message: "Utilisateur non trouvé." });
-    }
-
-    console.log(`✅ FCM Token enregistré pour l’utilisateur ${userId}`);
+    console.log("✅ FCM Token enregistré dans deals_devices");
 
     return res.status(200).json({
       message: "FCM token enregistré avec succès.",
-      userId,
     });
 
   } catch (error) {
@@ -133,8 +112,6 @@ router.post("/save-fcm-token", async (req, res) => {
     });
   }
 });
-
-
 
 
 
