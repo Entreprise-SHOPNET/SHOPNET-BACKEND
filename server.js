@@ -46,6 +46,8 @@ io.on('connection', (socket) => {
   });
 });
 
+
+
 // Notification ciblée (Socket.IO)
 app.set('notifyUser', (userId, message) => {
   const sockets = connectedUsers.get(userId);
@@ -60,7 +62,8 @@ app.set('notifyUser', (userId, message) => {
 // Notification globale via Expo Push (fonctionne même si app fermée)
 app.set('notifyAll', async (title, message) => {
   try {
-    const db = require('./db');
+    // CORRECTION RENDER : On utilise db sans 'const' pour éviter le crash au démarrage
+    const db = require('./db'); 
     const dateNow = new Date();
 
     const [users] = await db.query(`
@@ -72,15 +75,15 @@ app.set('notifyAll', async (title, message) => {
     const messagesExpo = [];
 
     for (const user of users) {
-      // Sauvegarde dans la DB
+      // Sauvegarde dans la DB (historique notification)
       await db.query(
         `INSERT INTO notifications 
           (utilisateur_id, cible, type, titre, contenu, lu, priorite, date_envoi, date_notification)
-         VALUES (?, 'tous', 'info', ?, ?, 0, 'normale', ?, ?)`,
+          VALUES (?, 'tous', 'info', ?, ?, 0, 'normale', ?, ?)`,
         [user.id, title, message, dateNow, dateNow]
       );
 
-      // Préparer le message Expo Push
+      // Préparation du message Expo Push
       if (user.expoPushToken && Expo.isExpoPushToken(user.expoPushToken)) {
         messagesExpo.push({
           to: user.expoPushToken,
@@ -93,30 +96,33 @@ app.set('notifyAll', async (title, message) => {
     }
 
     // Envoyer via Socket.IO pour ceux qui sont connectés
-    io.emit('globalNotification', { titre: title, contenu: message, date_notification: dateNow.toISOString(), type: 'info', priorite: 'normale' });
+    io.emit('globalNotification', { 
+      titre: title, 
+      contenu: message, 
+      date_notification: dateNow.toISOString(), 
+      type: 'info', 
+      priorite: 'normale' 
+    });
 
-
-    // SYSTEME DE TOKEN POUR LES TOKEN EXPO NOTIFICATION
- // --- CODE CORRIGÉ POUR SHOPNET-BACKEND ---
+    // --- SYSTÈME DE GESTION DES TOKENS EXPO (CORRIGÉ) ---
     const chunks = expo.chunkPushNotifications(messagesExpo);
     
     for (const chunk of chunks) {
       try {
         // Tentative d'envoi du paquet
-        const tickets = await expo.sendPushNotificationsAsync(chunk);
+        await expo.sendPushNotificationsAsync(chunk);
         console.log('✅ Groupe de notifications envoyé avec succès');
       } catch (err) {
-        // SI ERREUR DE MÉLANGE DE PROJETS (L'erreur 400 que vous avez eue)
+        // GESTION DE L'ERREUR 400 (CONFLIT DE COMPTES EXPO)
         if (err.code === 'PUSH_TOO_MANY_EXPERIENCE_IDS' || err.statusCode === 400) {
-          console.warn("⚠️ Conflit de compte Expo détecté. Passage en envoi individuel pour ce groupe...");
+          console.warn("⚠️ Conflit de compte Expo détecté. Passage en envoi individuel...");
           
-          // On déballe le paquet et on envoie un par un pour isoler le coupable
           for (const msg of chunk) {
             try {
               await expo.sendPushNotificationsAsync([msg]);
             } catch (individualErr) {
+              // On ignore silencieusement les jetons des anciens comptes
               console.error(`❌ Token ignoré (ancien compte) : ${msg.to}`);
-              // Ici, le serveur continue au lieu de planter !
             }
           }
         } else {
@@ -125,11 +131,14 @@ app.set('notifyAll', async (title, message) => {
       }
     }
 
-    console.log(`📢 Fin du traitement de la notification "${title}"`);
+    console.log(`📢 Fin du traitement de la notification "${title}" pour ${users.length} utilisateurs`);
+
+  } catch (err) {
+    console.error('❌ Erreur notification globale:', err);
+  }
+});
 
 
-
-    
 
 // Envoi automatique aléatoire de notifications
 const messagesTypes = require('./Route/Notifications/messagesTypes');
