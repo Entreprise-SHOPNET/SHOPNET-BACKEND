@@ -95,23 +95,41 @@ app.set('notifyAll', async (title, message) => {
     // Envoyer via Socket.IO pour ceux qui sont connectés
     io.emit('globalNotification', { titre: title, contenu: message, date_notification: dateNow.toISOString(), type: 'info', priorite: 'normale' });
 
-    // Envoyer via Expo Push
+
+    // SYSTEME DE TOKEN POUR LES TOKEN EXPO NOTIFICATION
+ // --- CODE CORRIGÉ POUR SHOPNET-BACKEND ---
     const chunks = expo.chunkPushNotifications(messagesExpo);
+    
     for (const chunk of chunks) {
       try {
+        // Tentative d'envoi du paquet
         const tickets = await expo.sendPushNotificationsAsync(chunk);
-        console.log('✅ Tickets Expo Push envoyés:', tickets);
+        console.log('✅ Groupe de notifications envoyé avec succès');
       } catch (err) {
-        console.error('❌ Erreur Expo Push:', err);
+        // SI ERREUR DE MÉLANGE DE PROJETS (L'erreur 400 que vous avez eue)
+        if (err.code === 'PUSH_TOO_MANY_EXPERIENCE_IDS' || err.statusCode === 400) {
+          console.warn("⚠️ Conflit de compte Expo détecté. Passage en envoi individuel pour ce groupe...");
+          
+          // On déballe le paquet et on envoie un par un pour isoler le coupable
+          for (const msg of chunk) {
+            try {
+              await expo.sendPushNotificationsAsync([msg]);
+            } catch (individualErr) {
+              console.error(`❌ Token ignoré (ancien compte) : ${msg.to}`);
+              // Ici, le serveur continue au lieu de planter !
+            }
+          }
+        } else {
+          console.error('❌ Erreur critique Expo Push:', err);
+        }
       }
     }
 
-    console.log(`📢 Notification globale "${title}" envoyée à ${users.length} utilisateurs`);
+    console.log(`📢 Fin du traitement de la notification "${title}"`);
 
-  } catch (err) {
-    console.error('❌ Erreur notification globale:', err);
-  }
-});
+
+
+    
 
 // Envoi automatique aléatoire de notifications
 const messagesTypes = require('./Route/Notifications/messagesTypes');
