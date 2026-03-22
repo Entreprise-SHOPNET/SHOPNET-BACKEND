@@ -12,6 +12,19 @@ const rateLimit = require('express-rate-limit');
 const http = require('http');
 const { Server } = require('socket.io');
 const { Expo } = require('expo-server-sdk');
+
+// 🔹 FIREBASE ADMIN INIT 🔹
+const admin = require('firebase-admin');
+
+// Render stocke ton fichier secret dans /etc/secrets/firebaseKey.json
+const serviceAccountPath = path.resolve('/etc/secrets/firebaseKey.json');
+const serviceAccount = JSON.parse(fs.readFileSync(serviceAccountPath, 'utf8'));
+
+admin.initializeApp({
+  credential: admin.credential.cert(serviceAccount),
+});
+
+console.log('✅ Firebase Admin initialisé avec succès');
 //const { exportDB } = require('./exportDB'); // Chemin vers ton fichier exportDB.js
 const expo = new Expo();
 const app = express();
