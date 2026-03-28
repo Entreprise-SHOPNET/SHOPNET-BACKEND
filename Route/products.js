@@ -7,6 +7,7 @@ const db = require('../db');
 const authMiddleware = require('../middlewares/authMiddleware');
 const cors = require('cors');
 const cloudinary = require('cloudinary').v2;
+const redisClient = require('../ia_statique/redisClient'); // adapte ton chemin
 
 router.use(cors({
   origin: [
@@ -824,6 +825,221 @@ router.get('/:id', authMiddleware, async (req, res) => {
     res.status(500).json({
       success: false,
       error: 'Erreur serveur'
+    });
+  }
+});
+
+
+
+
+
+// =============================================================================
+// ROUTE GET /api/products/:id/similar
+// Description: Produits similaires (titre + catégorie + prix + GPS + popularité)
+// =============================================================================
+// =============================================================================
+// ROUTE GET /api/products/:id/similar (PAGINATION + REDIS)
+// =============================================================================
+
+router.get('/:id/similar', authMiddleware, async (req, res) => {
+  try {
+    const productId = parseInt(req.params.id);
+
+    // 📦 pagination
+    const page = parseInt(req.query.page) || 1;
+    const limit = 8;
+    const offset = (page - 1) * limit;
+
+    console.log(`📥 Similar request product=${productId} page=${page}`);
+
+    // ================================
+    // 🔥 CACHE REDIS CHECK
+    // ================================
+    const cacheKey = `similar:${productId}:page:${page}`;
+
+    const cached = await redisClient.get(cacheKey);
+    if (cached) {
+      console.log("⚡ CACHE HIT Redis");
+      return res.json(JSON.parse(cached));
+    }
+
+    // ================================
+    // 1️⃣ PRODUIT ACTUEL
+    // ================================
+    const [currentRows] = await db.query(
+      `SELECT * FROM products WHERE id = ? AND is_active = 1`,
+      [productId]
+    );
+
+    if (!currentRows.length) {
+      return res.status(404).json({
+        success: false,
+        message: "Produit introuvable"
+      });
+    }
+
+    const product = currentRows[0];
+
+    const title = (product.title || "").toLowerCase();
+    const category = product.category;
+    const price = parseFloat(product.price);
+
+    const lat = product.latitude;
+    const lon = product.longitude;
+
+    // ================================
+    // 2️⃣ KEYWORDS
+    // ================================
+    const keywords = title
+      .split(" ")
+      .filter(w => w.length > 2)
+      .slice(0, 3);
+
+    // ================================
+    // 3️⃣ CANDIDATS PRODUITS
+    // ================================
+    const [candidates] = await db.query(
+      `
+      SELECT *
+      FROM products
+      WHERE id != ?
+        AND is_active = 1
+        AND category = ?
+      LIMIT 120
+      `,
+      [productId, category]
+    );
+
+    // ================================
+    // 4️⃣ SCORE + IMAGE MAP OPTIMISÉ
+    // ================================
+    const productIds = candidates.map(p => p.id);
+
+    const [imgRows] = await db.query(
+      `SELECT product_id, absolute_url 
+       FROM product_images 
+       WHERE product_id IN (?)`,
+      [productIds]
+    );
+
+    const imageMap = {};
+    imgRows.forEach(img => {
+      if (!imageMap[img.product_id]) {
+        imageMap[img.product_id] = img.absolute_url;
+      }
+    });
+
+    const scored = candidates.map(p => {
+
+      let score = 0;
+
+      const pTitle = (p.title || "").toLowerCase();
+
+      // 🧠 titre match
+      keywords.forEach(k => {
+        if (pTitle.includes(k)) score += 35;
+      });
+
+      // 🏷️ catégorie
+      score += 20;
+
+      // 💰 prix
+      const diff = Math.abs(price - parseFloat(p.price));
+      if (diff <= price * 0.15) score += 30;
+      else if (diff <= price * 0.30) score += 15;
+      else if (diff <= price * 0.50) score += 5;
+
+      // 📍 distance GPS
+      let distance = null;
+
+      if (lat && lon && p.latitude && p.longitude) {
+        const R = 6371;
+
+        const dLat = (p.latitude - lat) * Math.PI / 180;
+        const dLon = (p.longitude - lon) * Math.PI / 180;
+
+        const a =
+          Math.sin(dLat / 2) ** 2 +
+          Math.cos(lat * Math.PI / 180) *
+          Math.cos(p.latitude * Math.PI / 180) *
+          Math.sin(dLon / 2) ** 2;
+
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+
+        distance = R * c;
+
+        if (distance < 3) score += 40;
+        else if (distance < 10) score += 25;
+        else if (distance < 30) score += 10;
+      }
+
+      // 🔥 popularité
+      score += (p.popularity_score || 0) * 2;
+
+      // 🚀 boost
+      if (p.is_boosted) score += 50;
+      if (p.is_featured) score += 25;
+
+      // 👀 ventes
+      if (p.sales > 0) score += Math.min(p.sales * 2, 20);
+
+      return {
+        id: p.id,
+        title: p.title,
+        description: p.description,
+        price: parseFloat(p.price),
+        category: p.category,
+        location: p.location,
+        image_url: imageMap[p.id] || null,
+        latitude: p.latitude,
+        longitude: p.longitude,
+        popularity_score: p.popularity_score,
+        is_boosted: p.is_boosted,
+        is_featured: p.is_featured,
+        sales: p.sales || 0,
+        similarity_score: score,
+        distance_km: distance
+      };
+    });
+
+    // ================================
+    // 5️⃣ TRI
+    // ================================
+    const sorted = scored
+      .sort((a, b) => b.similarity_score - a.similarity_score);
+
+    // ================================
+    // 6️⃣ PAGINATION (8 PRODUITS)
+    // ================================
+    const paginated = sorted.slice(offset, offset + limit);
+
+    // ================================
+    // 7️⃣ RESPONSE
+    // ================================
+    const response = {
+      success: true,
+      product_id: productId,
+      page,
+      limit,
+      has_more: offset + limit < sorted.length,
+      count: paginated.length,
+      total: sorted.length,
+      keywords,
+      products: paginated
+    };
+
+    // ================================
+    // 8️⃣ CACHE REDIS SAVE (10 min)
+    // ================================
+    await redisClient.setEx(cacheKey, 600, JSON.stringify(response));
+
+    return res.json(response);
+
+  } catch (error) {
+    console.error("❌ Similar error:", error.message);
+    return res.status(500).json({
+      success: false,
+      message: "Erreur serveur"
     });
   }
 });

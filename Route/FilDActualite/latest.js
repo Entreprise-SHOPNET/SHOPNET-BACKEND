@@ -400,5 +400,4 @@ router.get('/feed', authMiddleware, async (req, res) => {
   }
 });
 
-
 module.exports = router;
