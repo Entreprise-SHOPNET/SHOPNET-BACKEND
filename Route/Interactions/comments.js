@@ -7,93 +7,97 @@ const authMiddleware = require('../../middlewares/authMiddleware');
 const db = require('../../db');
 const sendPushNotification = require('../../utils/sendPushNotification');
 
-/**
- * POST - Ajouter commentaire / réponse
- */
+
+
+// -----------------------------------------------------
+// 💬 AJOUT COMMENTAIRE + NOTIFICATION VENDEUR
+// -----------------------------------------------------
 router.post('/:productId/comment', authMiddleware, async (req, res) => {
   const userId = req.userId;
   const productId = parseInt(req.params.productId, 10);
+
   let { comment, parent_id } = req.body;
 
   if (!comment || typeof comment !== 'string' || comment.trim() === '') {
     return res.status(400).json({
       success: false,
-      message: 'Le commentaire est vide.'
+      message: 'Commentaire vide'
     });
   }
 
   comment = comment.trim();
   parent_id = parent_id ? parseInt(parent_id, 10) : null;
-  if (isNaN(parent_id)) parent_id = null;
 
   try {
-    // 🔹 Vérifier produit
-    const [productCheck] = await db.query(
+
+    // -------------------------------------------------
+    // 1️⃣ PRODUIT
+    // -------------------------------------------------
+    const [productRows] = await db.query(
       'SELECT id, seller_id FROM products WHERE id = ?',
       [productId]
     );
 
-    if (productCheck.length === 0) {
+    if (productRows.length === 0) {
       return res.status(404).json({
         success: false,
-        message: 'Produit introuvable.'
+        message: 'Produit introuvable'
       });
     }
 
-    const product = productCheck[0];
+    const product = productRows[0];
 
-    // 🔹 Vérifier utilisateur
-    const [userCheck] = await db.query(
-      'SELECT id FROM utilisateurs WHERE id = ?',
-      [userId]
-    );
 
-    if (userCheck.length === 0) {
-      return res.status(401).json({
-        success: false,
-        message: 'Utilisateur non reconnu.'
-      });
-    }
 
-    // 🔹 Vérifier parent commentaire
-    if (parent_id !== null) {
-      const [parentCheck] = await db.query(
-        'SELECT id FROM product_comments WHERE id = ? AND product_id = ?',
-        [parent_id, productId]
-      );
-
-      if (parentCheck.length === 0) {
-        return res.status(400).json({
-          success: false,
-          message: 'Commentaire parent introuvable.'
-        });
-      }
-    }
-
-    // 🔹 Insérer commentaire
+    // -------------------------------------------------
+    // 2️⃣ INSERT COMMENTAIRE
+    // -------------------------------------------------
     await db.query(
-      'INSERT INTO product_comments (product_id, user_id, parent_id, comment) VALUES (?, ?, ?, ?)',
+      `INSERT INTO product_comments 
+      (product_id, user_id, parent_id, comment) 
+      VALUES (?, ?, ?, ?)`,
       [productId, userId, parent_id, comment]
     );
 
     console.log('🔹 Commentaire ajouté:', { productId, userId });
 
-    // 🔔 NOTIFICATION FCM
-    const [sellerRows] = await db.query(
-      'SELECT fcm_token FROM fcm_tokens WHERE user_id = ?',
-      [product.seller_id]
-    );
 
-    if (sellerRows.length > 0 && sellerRows[0].fcm_token) {
-      await sendPushNotification(
-        sellerRows[0].fcm_token,
-        '💬 Nouveau commentaire',
-        'Un utilisateur a commenté votre produit sur SHOPNET',
-        { productId }
+
+    // -------------------------------------------------
+    // 3️⃣ NOTIFICATION VENDEUR (FCM SAFE)
+    // -------------------------------------------------
+    if (product.seller_id) {
+
+      const [sellerRows] = await db.query(
+        'SELECT fcm_token FROM fcm_tokens WHERE user_id = ?',
+        [product.seller_id]
       );
-    } else {
-      console.warn('⚠️ Aucun token FCM vendeur:', product.seller_id);
+
+      const token = sellerRows[0]?.fcm_token;
+
+      if (token) {
+        try {
+          await sendPushNotification(
+            token,
+            '💬 Nouveau commentaire',
+            'Quelqu’un a commenté votre produit sur SHOPNET',
+            {
+              productId,
+              type: 'comment'
+            }
+          );
+
+          console.log('🔔 Notification commentaire envoyée');
+
+        } catch (err) {
+          console.error('❌ FCM COMMENT ERROR:', err.message);
+        }
+      } else {
+        console.warn('⚠️ Aucun token FCM vendeur:', product.seller_id);
+      }
     }
+
+
 
     return res.json({
       success: true,
@@ -101,17 +105,20 @@ router.post('/:productId/comment', authMiddleware, async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ Erreur ajout commentaire :', error);
+    console.error('❌ Erreur commentaire:', error.message);
     return res.status(500).json({
       success: false,
-      message: 'Erreur serveur'
+      message: 'Erreur serveur',
+      details: error.message
     });
   }
 });
 
-/**
- * GET - Récupérer les commentaires
- */
+
+
+// -----------------------------------------------------
+// 📥 GET commentaires
+// -----------------------------------------------------
 router.get('/:productId/comments', async (req, res) => {
   const productId = parseInt(req.params.productId, 10);
 
@@ -131,7 +138,7 @@ router.get('/:productId/comments', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ Erreur récupération commentaires :', error);
+    console.error('❌ GET comments error:', error.message);
     return res.status(500).json({
       success: false,
       message: 'Erreur serveur'
@@ -139,9 +146,11 @@ router.get('/:productId/comments', async (req, res) => {
   }
 });
 
-/**
- * GET - Compteur de commentaires
- */
+
+
+// -----------------------------------------------------
+// 🔢 COUNT commentaires
+// -----------------------------------------------------
 router.get('/:productId/comments/count', async (req, res) => {
   const productId = parseInt(req.params.productId, 10);
 
@@ -157,7 +166,7 @@ router.get('/:productId/comments/count', async (req, res) => {
     });
 
   } catch (error) {
-    console.error('❌ Erreur compteur commentaires :', error);
+    console.error('❌ COUNT comments error:', error.message);
     return res.status(500).json({
       success: false,
       message: 'Erreur serveur'
@@ -165,5 +174,4 @@ router.get('/:productId/comments/count', async (req, res) => {
   }
 });
 
-// ✅ IMPORTANT (corrige ton crash)
 module.exports = router;
