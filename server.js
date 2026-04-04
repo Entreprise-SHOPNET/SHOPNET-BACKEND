@@ -73,6 +73,7 @@ app.set('notifyUser', (userId, message) => {
 });
 
 // Notification globale via FCM + Socket
+// Notification globale via FCM + Socket
 app.set('notifyAll', async (title, message) => {
   const db = require('./db');
   const dateNow = new Date();
@@ -99,7 +100,7 @@ app.set('notifyAll', async (title, message) => {
         [user.id, title, message, dateNow, dateNow]
       );
 
-      // 🔥 récupérer token FCM (CORRIGÉ)
+      // 🔥 récupérer token FCM
       const [tokens] = await db.query(
         'SELECT fcm_token FROM fcm_tokens WHERE user_id = ?',
         [user.id]
@@ -108,7 +109,6 @@ app.set('notifyAll', async (title, message) => {
       if (tokens.length > 0 && tokens[0].fcm_token) {
         messagesExpo.push({
           to: tokens[0].fcm_token,
-          sound: 'default',
           title,
           body: message,
           data: { title, message },
@@ -125,44 +125,33 @@ app.set('notifyAll', async (title, message) => {
       priorite: 'normale'
     });
 
-  } catch (err) {
-    console.error('❌ Erreur notifyAll:', err);
-  }
-});    // --- SYSTÈME DE GESTION DES TOKENS EXPO (CORRIGÉ) ---
-    const chunks = expo.chunkPushNotifications(messagesExpo);
-    
-    for (const chunk of chunks) {
+    // 🔥 ENVOI FCM (IMPORTANT)
+    const admin = require('firebase-admin');
+
+    for (const msg of messagesExpo) {
       try {
-        // Tentative d'envoi du paquet
-        await expo.sendPushNotificationsAsync(chunk);
-        console.log('✅ Groupe de notifications envoyé avec succès');
+        await admin.messaging().send({
+          token: msg.to,
+          notification: {
+            title: msg.title,
+            body: msg.body
+          },
+          data: Object.keys(msg.data || {}).reduce((acc, key) => {
+            acc[key] = String(msg.data[key]);
+            return acc;
+          }, {})
+        });
       } catch (err) {
-        // GESTION DE L'ERREUR 400 (CONFLIT DE COMPTES EXPO)
-        if (err.code === 'PUSH_TOO_MANY_EXPERIENCE_IDS' || err.statusCode === 400) {
-          console.warn("⚠️ Conflit de compte Expo détecté. Passage en envoi individuel...");
-          
-          for (const msg of chunk) {
-            try {
-              await expo.sendPushNotificationsAsync([msg]);
-            } catch (individualErr) {
-              // On ignore silencieusement les jetons des anciens comptes
-              console.error(`❌ Token ignoré (ancien compte) : ${msg.to}`);
-            }
-          }
-        } else {
-          console.error('❌ Erreur critique Expo Push:', err);
-        }
+        console.error('❌ Erreur FCM:', err.message);
       }
     }
 
-    console.log(`📢 Fin du traitement de la notification "${title}" pour ${users.length} utilisateurs`);
+    console.log(`📢 Notifications envoyées à ${users.length} utilisateurs`);
 
   } catch (err) {
     console.error('❌ Erreur notification globale:', err);
   }
 });
-
-
 
 // Envoi automatique aléatoire de notifications
 const messagesTypes = require('./Route/Notifications/messagesTypes');
