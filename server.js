@@ -72,50 +72,63 @@ app.set('notifyUser', (userId, message) => {
   }
 });
 
-const [users] = await db.query(`
-  SELECT id FROM utilisateurs WHERE role IN ('vendeur', 'acheteur')
-`);
+// Notification globale via FCM + Socket
+app.set('notifyAll', async (title, message) => {
+  const db = require('./db');
+  const dateNow = new Date();
 
-if (!users || users.length === 0)
-  return console.log('⚠️ Aucun utilisateur pour notification globale');
+  try {
+    // 🔹 récupérer utilisateurs
+    const [users] = await db.query(`
+      SELECT id FROM utilisateurs WHERE role IN ('vendeur', 'acheteur')
+    `);
 
-const messagesExpo = [];
+    if (!users || users.length === 0) {
+      return console.log('⚠️ Aucun utilisateur pour notification globale');
+    }
 
-for (const user of users) {
-  // Sauvegarde dans la DB (historique notification)
-  await db.query(
-    `INSERT INTO notifications 
-      (utilisateur_id, cible, type, titre, contenu, lu, priorite, date_envoi, date_notification)
-      VALUES (?, 'tous', 'info', ?, ?, 0, 'normale', ?, ?)`,
-    [user.id, title, message, dateNow, dateNow]
-  );
+    const messagesExpo = [];
 
-  // 🔥 NOUVEAU SYSTÈME FCM
-  const [tokens] = await db.query(
-    'SELECT fcm_token FROM fcm_tokens WHERE user_id = ?',
-    [user.id]
-  );
+    for (const user of users) {
 
-  if (tokens.length > 0 && tokens[0].fcm_token) {
-    messagesExpo.push({
-      to: tokens[0].fcm_token,
-      sound: 'default',
-      title,
-      body: message,
-      data: { title, message },
+      // 🔹 sauvegarde notification
+      await db.query(
+        `INSERT INTO notifications 
+          (utilisateur_id, cible, type, titre, contenu, lu, priorite, date_envoi, date_notification)
+          VALUES (?, 'tous', 'info', ?, ?, 0, 'normale', ?, ?)`,
+        [user.id, title, message, dateNow, dateNow]
+      );
+
+      // 🔥 récupérer token FCM (CORRIGÉ)
+      const [tokens] = await db.query(
+        'SELECT fcm_token FROM fcm_tokens WHERE user_id = ?',
+        [user.id]
+      );
+
+      if (tokens.length > 0 && tokens[0].fcm_token) {
+        messagesExpo.push({
+          to: tokens[0].fcm_token,
+          sound: 'default',
+          title,
+          body: message,
+          data: { title, message },
+        });
+      }
+    }
+
+    // 🔹 Socket.IO broadcast
+    io.emit('globalNotification', {
+      titre: title,
+      contenu: message,
+      date_notification: dateNow.toISOString(),
+      type: 'info',
+      priorite: 'normale'
     });
-  }
-}
 
-// Envoyer via Socket.IO pour ceux qui sont connectés
-io.emit('globalNotification', {
-  titre: title,
-  contenu: message,
-  date_notification: dateNow.toISOString(),
-  type: 'info',
-  priorite: 'normale'
-});
-    // --- SYSTÈME DE GESTION DES TOKENS EXPO (CORRIGÉ) ---
+  } catch (err) {
+    console.error('❌ Erreur notifyAll:', err);
+  }
+});    // --- SYSTÈME DE GESTION DES TOKENS EXPO (CORRIGÉ) ---
     const chunks = expo.chunkPushNotifications(messagesExpo);
     
     for (const chunk of chunks) {
