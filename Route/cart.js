@@ -3,9 +3,16 @@
 
 const express = require('express');
 const router = express.Router();
+
 const db = require('../db');
 const authenticateToken = require('../middlewares/authMiddleware');
+const sendPushNotification = require('../utils/sendPushNotification');
 
+
+
+// -----------------------------------------------------
+// 🛒 AJOUT AU PANIER + NOTIFICATION VENDEUR
+// -----------------------------------------------------
 router.post('/', authenticateToken, async (req, res) => {
   const userId = Number(req.userId);
   const body = req.body || {};
@@ -31,12 +38,14 @@ router.post('/', authenticateToken, async (req, res) => {
   if (!product_id || !title || !price) {
     return res.status(400).json({
       success: false,
-      message: 'Champs obligatoires manquants: product_id, title, price'
+      message: 'Champs obligatoires manquants'
     });
   }
 
   try {
-    // 🔹 Vérifie si produit existe déjà dans le panier
+    // -------------------------------------------------
+    // 1️⃣ AJOUT / UPDATE PANIER
+    // -------------------------------------------------
     const [existing] = await db.query(
       'SELECT * FROM carts WHERE user_id = ? AND product_id = ?',
       [userId, product_id]
@@ -73,41 +82,43 @@ router.post('/', authenticateToken, async (req, res) => {
       );
     }
 
-    // 🔔 NOTIFICATION PUSH AU VENDEUR (CORRIGÉ FCM)
-    const [seller] = await db.query(
-      'SELECT fcm_token FROM fcm_tokens WHERE user_id = ?',
-      [seller_id]
-    );
 
-    if (seller.length > 0 && seller[0].fcm_token) {
-      const { Expo } = require('expo-server-sdk');
-      const expo = new Expo();
 
-      const messages = [{
-        to: seller[0].fcm_token,
-        sound: 'default',
-        title: '🛒 Nouveau panier',
-        body: `"${title}" a été ajouté au panier.`,
-        data: {
-          productId: product_id,
-          buyerId: userId
-        }
-      }];
+    // -------------------------------------------------
+    // 🔔 2️⃣ NOTIFICATION VENDEUR (FCM)
+    // -------------------------------------------------
+    if (seller_id) {
+      const [sellerRows] = await db.query(
+        'SELECT fcm_token FROM fcm_tokens WHERE user_id = ?',
+        [seller_id]
+      );
 
-      const chunks = expo.chunkPushNotifications(messages);
-
-      for (const chunk of chunks) {
+      if (sellerRows.length > 0 && sellerRows[0].fcm_token) {
         try {
-          await expo.sendPushNotificationsAsync(chunk);
+          await sendPushNotification(
+            sellerRows[0].fcm_token,
+            '🛒 Nouveau ajout au panier',
+            `"${title}" a été ajouté au panier.`,
+            {
+              productId: product_id,
+              buyerId: userId
+            }
+          );
+
+          console.log('🔔 Notification panier envoyée au vendeur:', seller_id);
         } catch (err) {
-          console.error('❌ Erreur notification:', err);
+          console.error('FCM cart error:', err.message);
         }
+      } else {
+        console.warn('⚠️ Aucun token FCM vendeur:', seller_id);
       }
     }
 
+
+
     return res.json({
       success: true,
-      message: '✅ Produit ajouté au panier avec succès',
+      message: 'Produit ajouté au panier avec succès',
       userId
     });
 
@@ -121,7 +132,10 @@ router.post('/', authenticateToken, async (req, res) => {
 });
 
 
-// 👉 Récupérer le panier
+
+// -----------------------------------------------------
+// 📦 RÉCUPÉRER PANIER
+// -----------------------------------------------------
 router.get('/', authenticateToken, async (req, res) => {
   const userId = Number(req.userId);
 
@@ -146,7 +160,10 @@ router.get('/', authenticateToken, async (req, res) => {
 });
 
 
-// 👉 Supprimer un produit du panier
+
+// -----------------------------------------------------
+// 🗑️ SUPPRIMER PANIER
+// -----------------------------------------------------
 router.delete('/:cart_id', authenticateToken, async (req, res) => {
   const userId = Number(req.userId);
   const cart_id = Number(req.params.cart_id);
@@ -173,7 +190,7 @@ router.delete('/:cart_id', authenticateToken, async (req, res) => {
 
     return res.json({
       success: true,
-      message: '🗑️ Produit supprimé du panier'
+      message: 'Produit supprimé du panier'
     });
 
   } catch (err) {
