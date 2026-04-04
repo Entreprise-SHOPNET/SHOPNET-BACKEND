@@ -78,7 +78,7 @@ router.post('/:productId/comment', authMiddleware, async (req, res) => {
 
     console.log('🔹 Commentaire ajouté:', { productId, userId });
 
-    // 🔔 NOTIFICATION FCM CORRIGÉE
+    // 🔔 NOTIFICATION FCM
     const [sellerRows] = await db.query(
       'SELECT fcm_token FROM fcm_tokens WHERE user_id = ?',
       [product.seller_id]
@@ -108,3 +108,62 @@ router.post('/:productId/comment', authMiddleware, async (req, res) => {
     });
   }
 });
+
+/**
+ * GET - Récupérer les commentaires
+ */
+router.get('/:productId/comments', async (req, res) => {
+  const productId = parseInt(req.params.productId, 10);
+
+  try {
+    const [comments] = await db.query(
+      `SELECT c.*, u.fullName 
+       FROM product_comments c
+       LEFT JOIN utilisateurs u ON c.user_id = u.id
+       WHERE c.product_id = ?
+       ORDER BY c.created_at ASC`,
+      [productId]
+    );
+
+    return res.json({
+      success: true,
+      comments
+    });
+
+  } catch (error) {
+    console.error('❌ Erreur récupération commentaires :', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Erreur serveur'
+    });
+  }
+});
+
+/**
+ * GET - Compteur de commentaires
+ */
+router.get('/:productId/comments/count', async (req, res) => {
+  const productId = parseInt(req.params.productId, 10);
+
+  try {
+    const [rows] = await db.query(
+      'SELECT COUNT(*) AS total FROM product_comments WHERE product_id = ?',
+      [productId]
+    );
+
+    return res.json({
+      success: true,
+      count: rows[0].total
+    });
+
+  } catch (error) {
+    console.error('❌ Erreur compteur commentaires :', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Erreur serveur'
+    });
+  }
+});
+
+// ✅ IMPORTANT (corrige ton crash)
+module.exports = router;
