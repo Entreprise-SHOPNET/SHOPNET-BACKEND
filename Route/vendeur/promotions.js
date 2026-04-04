@@ -4,35 +4,19 @@
 // Route/vendeur/promotions.js
 const express = require('express');
 const router = express.Router();
-const db = require('../../db'); 
+
+const db = require('../../db');
 const authMiddleware = require('../../middlewares/authMiddleware');
-const axios = require('axios');
+const sendPushNotification = require('../../utils/sendPushNotification');
 const cloudinary = require('cloudinary').v2;
 
-// Sécurisation
+// 🔐 Sécurisation
 router.use(authMiddleware);
 
-// -------------------------------------------------------------
-// 🔥 Fonction d’envoi de notification Expo via Axios
-// -------------------------------------------------------------
-const sendExpoNotification = async (expoPushToken, title, body, data = {}) => {
-  if (!expoPushToken) return;
 
-  try {
-    await axios.post('https://exp.host/--/api/v2/push/send', {
-      to: expoPushToken,
-      title,
-      body,
-      data,
-      sound: 'default',
-    });
-  } catch (err) {
-    console.error('Erreur envoi notification Expo:', err.message);
-  }
-};
 
 // -------------------------------------------------------------
-// 🔥 ROUTE POST : Créer une promotion + Notifications Expo
+// 🔥 ROUTE POST : Créer une promotion + Notifications FCM
 // -------------------------------------------------------------
 router.post('/', async (req, res) => {
   const {
@@ -56,7 +40,7 @@ router.post('/', async (req, res) => {
   }
 
   try {
-    // 1️⃣ Enregistrer la promotion
+    // 1️⃣ INSERT promotion
     const [result] = await db.query(
       `INSERT INTO promotions 
         (product_id, creator_id, product_title, original_price, promo_price, description, duration_days, created_at)
@@ -68,44 +52,70 @@ router.post('/', async (req, res) => {
 
     const message = `${productTitle} est maintenant à ${promoPrice}$ pendant ${duration} jours !`;
 
-    // 2️⃣ Notifier uniquement les followers (option)
+
+
+    // ---------------------------------------------------------
+    // 🔔 2️⃣ NOTIFICATION FOLLOWERS
+    // ---------------------------------------------------------
     if (notify_followers) {
       const [followers] = await db.query(
-        `SELECT u.expoPushToken 
-         FROM followers f 
-         JOIN utilisateurs u ON f.follower_id = u.id
-         WHERE f.user_id = ? AND u.expoPushToken IS NOT NULL`,
+        `SELECT ft.fcm_token
+         FROM followers f
+         JOIN fcm_tokens ft ON ft.user_id = f.follower_id
+         WHERE f.user_id = ?`,
         [userId]
       );
 
-      for (const follower of followers) {
-        await sendExpoNotification(
-          follower.expoPushToken,
-          "Nouvelle Promotion!",
-          message,
-          { promotionId }
-        );
+      for (const f of followers) {
+        if (f.fcm_token) {
+          try {
+            await sendPushNotification(
+              f.fcm_token,
+              "🔥 Nouvelle Promotion!",
+              message,
+              { promotionId }
+            );
+          } catch (err) {
+            console.error("FCM follower error:", err.message);
+          }
+        }
       }
     }
 
-    // 3️⃣ Notifier tous les utilisateurs (option)
+
+
+    // ---------------------------------------------------------
+    // 🔔 3️⃣ NOTIFICATION TOUS LES USERS
+    // ---------------------------------------------------------
     if (notify_all_users) {
-      const [allUsers] = await db.query(
-        `SELECT expoPushToken FROM utilisateurs 
-         WHERE expoPushToken IS NOT NULL AND id != ?`,
+      const [users] = await db.query(
+        `SELECT fcm_token 
+         FROM fcm_tokens 
+         WHERE user_id != ?`,
         [userId]
       );
 
-      for (const u of allUsers) {
-        await sendExpoNotification(
-          u.expoPushToken,
-          "Promotion disponible !",
-          message,
-          { promotionId }
-        );
+      for (const u of users) {
+        if (u.fcm_token) {
+          try {
+            await sendPushNotification(
+              u.fcm_token,
+              "📢 Promotion disponible !",
+              message,
+              { promotionId }
+            );
+          } catch (err) {
+            console.error("FCM all users error:", err.message);
+          }
+        }
       }
     }
 
+
+
+    // ---------------------------------------------------------
+    // ✅ RESPONSE
+    // ---------------------------------------------------------
     return res.json({
       success: true,
       message: "Promotion créée avec succès",
@@ -114,13 +124,15 @@ router.post('/', async (req, res) => {
 
   } catch (error) {
     console.error("Erreur création promotion:", error.message);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Erreur serveur",
       details: error.message
     });
   }
 });
+
+
 
 // -------------------------------------------------------------
 // 🔥 ROUTE GET : récupérer les promotions + images Cloudinary
@@ -151,7 +163,6 @@ router.get('/', async (req, res) => {
       LIMIT 50;
     `);
 
-    // 🔥 Générer les URLs Cloudinary complètes
     const CLOUDINARY_BASE = `https://res.cloudinary.com/${process.env.CLOUD_NAME}/image/upload/`;
 
     const formattedPromotions = promotions.map(promo => ({
@@ -170,7 +181,7 @@ router.get('/', async (req, res) => {
 
   } catch (err) {
     console.error("Erreur récupération promotions:", err.message);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: "Erreur serveur",
       details: err.message
