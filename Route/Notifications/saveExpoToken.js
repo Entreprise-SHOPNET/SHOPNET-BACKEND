@@ -76,43 +76,68 @@ router.post("/save-expo-token", async (req, res) => {
 
 
 
-
-// POST /api/save-fcm-token
 router.post("/save-fcm-token", async (req, res) => {
   try {
     console.log("🔹 Requête reçue pour enregistrer un FCM Token");
     console.log("🔹 Body reçu:", req.body);
 
     const db = req.db;
-    const { fcmToken } = req.body;
 
-    if (!fcmToken) {
+    let { userId, fcmToken, device } = req.body;
+
+    // 📌 Vérification des données
+    if (!userId || !fcmToken) {
       return res.status(400).json({
-        message: "fcmToken est requis.",
+        success: false,
+        message: "userId et fcmToken sont requis.",
       });
     }
 
-    // Insérer le token si il n'existe pas déjà
-    await db.query(
-      "INSERT IGNORE INTO deals_devices (fcmToken) VALUES (?)",
-      [fcmToken]
+    userId = Number(userId);
+
+    if (isNaN(userId)) {
+      return res.status(400).json({
+        success: false,
+        message: "userId invalide.",
+      });
+    }
+
+    // 🔍 Vérifier si le token existe déjà pour cet utilisateur
+    const [existing] = await db.query(
+      "SELECT * FROM fcm_tokens WHERE user_id = ? AND fcm_token = ?",
+      [userId, fcmToken]
     );
 
-    console.log("✅ FCM Token enregistré dans deals_devices");
+    if (existing.length > 0) {
+      return res.status(200).json({
+        success: true,
+        message: "Token déjà enregistré",
+      });
+    }
+
+    // 💾 INSÉRER dans la bonne table SHOPNET
+    await db.query(
+      "INSERT INTO fcm_tokens (user_id, fcm_token, device) VALUES (?, ?, ?)",
+      [userId, fcmToken, device || "android"]
+    );
+
+    console.log(`✅ FCM Token enregistré pour userId: ${userId}`);
 
     return res.status(200).json({
-      message: "FCM token enregistré avec succès.",
+      success: true,
+      message: "FCM token enregistré avec succès",
+      userId,
     });
 
   } catch (error) {
     console.error("❌ Erreur serveur save-fcm-token:", error);
     return res.status(500).json({
+      success: false,
       message: "Erreur serveur.",
       error: error.message,
     });
   }
 });
-
 
 
 
