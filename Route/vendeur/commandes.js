@@ -1,13 +1,14 @@
 
-
-// backend/routes/commandes.js
 const express = require('express');
 const router = express.Router();
+
 const pool = require('../../db');
 const authMiddleware = require('../../middlewares/authMiddleware');
 const sendPushNotification = require('../../utils/sendPushNotification');
 
 router.use(authMiddleware);
+
+
 
 // ----------------- CRÉER UNE COMMANDE -----------------
 router.post('/', async (req, res) => {
@@ -18,26 +19,36 @@ router.post('/', async (req, res) => {
     const { produits, adresse_livraison, mode_paiement, commentaire } = req.body;
 
     if (!produits || !Array.isArray(produits) || produits.length === 0 || !adresse_livraison) {
-      return res.status(400).json({ success: false, error: 'Données manquantes ou invalides' });
+      return res.status(400).json({
+        success: false,
+        error: 'Données manquantes ou invalides'
+      });
     }
 
     await conn.beginTransaction();
 
-    // ✅ Récupérer le vendeur du premier produit
+
+
+    // -------------------------------------------------
+    // 1️⃣ VENDEUR DU PREMIER PRODUIT
+    // -------------------------------------------------
     const [prodRow] = await conn.query(
       'SELECT seller_id, title FROM products WHERE id = ?',
       [produits[0].produit_id]
     );
 
     if (prodRow.length === 0) {
-      await conn.rollback();
-      return res.status(404).json({ success: false, error: 'Produit non trouvé' });
+      throw new Error('Produit non trouvé');
     }
 
     const vendeur_id = prodRow[0].seller_id;
     const produit_nom = prodRow[0].title;
 
-    // ✅ Calcul total commande
+
+
+    // -------------------------------------------------
+    // 2️⃣ CALCUL TOTAL
+    // -------------------------------------------------
     let totalCommande = 0;
 
     for (const p of produits) {
@@ -47,14 +58,17 @@ router.post('/', async (req, res) => {
       );
 
       if (pRow.length === 0) {
-        await conn.rollback();
-        return res.status(404).json({ success: false, error: `Produit ${p.produit_id} introuvable` });
+        throw new Error(`Produit ${p.produit_id} introuvable`);
       }
 
       totalCommande += pRow[0].price * p.quantite;
     }
 
-    // ✅ numéro commande
+
+
+    // -------------------------------------------------
+    // 3️⃣ NUMERO COMMANDE
+    // -------------------------------------------------
     const [rows] = await conn.query(
       'SELECT MAX(numero_commande) AS dernier FROM commandes WHERE vendeur_id = ?',
       [vendeur_id]
@@ -62,7 +76,11 @@ router.post('/', async (req, res) => {
 
     const numero_commande = (rows[0].dernier || 0) + 1;
 
-    // ✅ insert commande
+
+
+    // -------------------------------------------------
+    // 4️⃣ INSERT COMMANDE
+    // -------------------------------------------------
     const [result] = await conn.query(
       `INSERT INTO commandes 
         (acheteur_id, vendeur_id, numero_commande, status, total, mode_paiement, adresse_livraison, commentaire, date_commande)
@@ -80,7 +98,11 @@ router.post('/', async (req, res) => {
 
     const commandeId = result.insertId;
 
-    // ✅ produits commande
+
+
+    // -------------------------------------------------
+    // 5️⃣ PRODUITS COMMANDE
+    // -------------------------------------------------
     for (const p of produits) {
       const [pRow] = await conn.query(
         'SELECT price FROM products WHERE id = ?',
@@ -94,7 +116,11 @@ router.post('/', async (req, res) => {
       );
     }
 
-    // ✅ notification DB
+
+
+    // -------------------------------------------------
+    // 6️⃣ NOTIFICATION DB
+    // -------------------------------------------------
     const notifContenu = `📦 Nouvelle commande pour "${produit_nom}" (#${numero_commande}).`;
 
     await conn.query(
@@ -103,42 +129,48 @@ router.post('/', async (req, res) => {
       [vendeur_id, 'commande', notifContenu]
     );
 
+
+
+    // -------------------------------------------------
+    // 7️⃣ COMMIT
+    // -------------------------------------------------
     await conn.commit();
 
-    // ✅ PUSH NOTIFICATION SAFE
-    const [vendeurRow] = await conn.query(
-      'SELECT expoPushToken FROM utilisateurs WHERE id = ?',
+
+
+    // -------------------------------------------------
+    // 🔔 8️⃣ PUSH NOTIFICATION (FCM CORRIGÉ)
+    // -------------------------------------------------
+    const [tokenRows] = await pool.query(
+      'SELECT fcm_token FROM fcm_tokens WHERE user_id = ?',
       [vendeur_id]
     );
 
-    const vendeurToken = vendeurRow[0]?.expoPushToken;
+    const token = tokenRows[0]?.fcm_token;
 
-    if (vendeurToken) {
-      await sendPushNotification(
-        vendeurToken,
-        'Nouvelle commande SHOPNET',
-        notifContenu,
-        {
-          commandeId,
-          produit_nom,
-          numero_commande,
-          type: 'commande'
-        }
-      );
+    if (token) {
+      try {
+        await sendPushNotification(
+          token,
+          '🛒 Nouvelle commande SHOPNET',
+          notifContenu,
+          {
+            commandeId,
+            produit_nom,
+            numero_commande,
+            type: 'commande'
+          }
+        );
+
+        console.log('🔔 Notification commande envoyée');
+      } catch (err) {
+        console.error('❌ FCM ERROR:', err.message);
+      }
     } else {
-      console.log('⚠️ Aucun token push pour le vendeur');
+      console.warn('⚠️ Aucun token FCM vendeur');
     }
 
-    // ✅ SOCKET (optionnel)
-    if (req.notifyVendor) {
-      req.notifyVendor(vendeur_id, {
-        commandeId,
-        numero_commande,
-        produit_nom,
-        message: notifContenu,
-        date: new Date()
-      });
-    }
+
 
     return res.json({
       success: true,
@@ -148,14 +180,22 @@ router.post('/', async (req, res) => {
 
   } catch (err) {
     await conn.rollback();
-    console.error('❌ Erreur /commandes:', err);
-    return res.status(500).json({ success: false, error: 'Erreur serveur' });
+    console.error('❌ Erreur /commandes:', err.message);
+
+    return res.status(500).json({
+      success: false,
+      error: 'Erreur serveur',
+      details: err.message
+    });
+
   } finally {
     conn.release();
   }
 });
 
-// ----------------- LISTER COMMANDES -----------------
+
+
+// ----------------- GET COMMANDES -----------------
 router.get('/', async (req, res) => {
   try {
     const utilisateur_id = req.userId;
@@ -180,13 +220,21 @@ router.get('/', async (req, res) => {
 
     const [rows] = await pool.query(query, params);
 
-    return res.json({ success: true, commandes: rows });
+    return res.json({
+      success: true,
+      commandes: rows
+    });
 
   } catch (err) {
-    console.error('❌ Erreur GET /commandes:', err);
-    return res.status(500).json({ success: false, error: 'Erreur serveur' });
+    console.error('❌ GET /commandes:', err);
+    return res.status(500).json({
+      success: false,
+      error: 'Erreur serveur'
+    });
   }
 });
+
+
 
 // ----------------- UPDATE STATUS -----------------
 router.patch('/:id', async (req, res) => {
@@ -197,7 +245,10 @@ router.patch('/:id', async (req, res) => {
     const validStatuses = ['en_attente', 'confirmee', 'en_cours', 'livree', 'annulee'];
 
     if (!validStatuses.includes(status)) {
-      return res.status(400).json({ success: false, error: 'Statut invalide' });
+      return res.status(400).json({
+        success: false,
+        error: 'Statut invalide'
+      });
     }
 
     const [result] = await pool.query(
@@ -206,14 +257,23 @@ router.patch('/:id', async (req, res) => {
     );
 
     if (result.affectedRows === 0) {
-      return res.status(404).json({ success: false, error: 'Commande non trouvée' });
+      return res.status(404).json({
+        success: false,
+        error: 'Commande non trouvée'
+      });
     }
 
-    return res.json({ success: true, message: 'Statut mis à jour' });
+    return res.json({
+      success: true,
+      message: 'Statut mis à jour'
+    });
 
   } catch (err) {
-    console.error('❌ Erreur PATCH /commandes/:id:', err);
-    return res.status(500).json({ success: false, error: 'Erreur serveur' });
+    console.error('❌ PATCH /commandes:', err);
+    return res.status(500).json({
+      success: false,
+      error: 'Erreur serveur'
+    });
   }
 });
 
