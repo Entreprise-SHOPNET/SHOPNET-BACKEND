@@ -72,51 +72,49 @@ app.set('notifyUser', (userId, message) => {
   }
 });
 
-// Notification globale via Expo Push (fonctionne même si app fermée)
-app.set('notifyAll', async (title, message) => {
-  try {
-    // CORRECTION RENDER : On utilise db sans 'const' pour éviter le crash au démarrage
-    const db = require('./db'); 
-    const dateNow = new Date();
+const [users] = await db.query(`
+  SELECT id FROM utilisateurs WHERE role IN ('vendeur', 'acheteur')
+`);
 
-    const [users] = await db.query(`
-      SELECT id, expoPushToken FROM utilisateurs WHERE role IN ('vendeur', 'acheteur')
-    `);
+if (!users || users.length === 0)
+  return console.log('⚠️ Aucun utilisateur pour notification globale');
 
-    if (!users || users.length === 0) return console.log('⚠️ Aucun utilisateur pour notification globale');
+const messagesExpo = [];
 
-    const messagesExpo = [];
+for (const user of users) {
+  // Sauvegarde dans la DB (historique notification)
+  await db.query(
+    `INSERT INTO notifications 
+      (utilisateur_id, cible, type, titre, contenu, lu, priorite, date_envoi, date_notification)
+      VALUES (?, 'tous', 'info', ?, ?, 0, 'normale', ?, ?)`,
+    [user.id, title, message, dateNow, dateNow]
+  );
 
-    for (const user of users) {
-      // Sauvegarde dans la DB (historique notification)
-      await db.query(
-        `INSERT INTO notifications 
-          (utilisateur_id, cible, type, titre, contenu, lu, priorite, date_envoi, date_notification)
-          VALUES (?, 'tous', 'info', ?, ?, 0, 'normale', ?, ?)`,
-        [user.id, title, message, dateNow, dateNow]
-      );
+  // 🔥 NOUVEAU SYSTÈME FCM
+  const [tokens] = await db.query(
+    'SELECT fcm_token FROM fcm_tokens WHERE user_id = ?',
+    [user.id]
+  );
 
-      // Préparation du message Expo Push
-      if (user.expoPushToken && Expo.isExpoPushToken(user.expoPushToken)) {
-        messagesExpo.push({
-          to: user.expoPushToken,
-          sound: 'default',
-          title,
-          body: message,
-          data: { title, message },
-        });
-      }
-    }
-
-    // Envoyer via Socket.IO pour ceux qui sont connectés
-    io.emit('globalNotification', { 
-      titre: title, 
-      contenu: message, 
-      date_notification: dateNow.toISOString(), 
-      type: 'info', 
-      priorite: 'normale' 
+  if (tokens.length > 0 && tokens[0].fcm_token) {
+    messagesExpo.push({
+      to: tokens[0].fcm_token,
+      sound: 'default',
+      title,
+      body: message,
+      data: { title, message },
     });
+  }
+}
 
+// Envoyer via Socket.IO pour ceux qui sont connectés
+io.emit('globalNotification', {
+  titre: title,
+  contenu: message,
+  date_notification: dateNow.toISOString(),
+  type: 'info',
+  priorite: 'normale'
+});
     // --- SYSTÈME DE GESTION DES TOKENS EXPO (CORRIGÉ) ---
     const chunks = expo.chunkPushNotifications(messagesExpo);
     
