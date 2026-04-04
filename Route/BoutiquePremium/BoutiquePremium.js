@@ -326,21 +326,53 @@ router.post('/create', authenticateUser, upload.single('logo'), async (req, res)
       );
 
       // NOTIFICATION
-      await creerNotification(
-        db,
-        'info',
-        '🏪 Boutique Premium créée',
-        `Votre boutique premium "${boutiqueData.nom}" a été créée. Statut: En attente de paiement (9.99 USD).`,
-        'user',
-        userId,
-        { 
-          boutique_id: boutiqueId, 
-          action: 'creation',
-          nom_boutique: boutiqueData.nom,
-          prix: 9.99,
-          devise: 'USD'
-        }
-      );
+     await creerNotification(
+  db,
+  'info',
+  '🏪 Boutique Premium créée',
+  `Votre boutique "${boutiqueData.nom}" est créée. Statut: En attente de paiement (9.99 USD).`,
+  'user',
+  userId,
+  {
+    boutique_id: boutiqueId,
+    action: 'creation',
+    nom_boutique: boutiqueData.nom,
+    prix: 9.99,
+    devise: 'USD'
+  }
+);
+
+// -------------------------------------------------
+// 🔥 PUSH NOTIFICATION FCM (AJOUTÉ)
+// -------------------------------------------------
+const [userRows] = await db.query(
+  'SELECT fcm_token FROM fcm_tokens WHERE user_id = ?',
+  [userId]
+);
+
+const token = userRows[0]?.fcm_token;
+
+if (token) {
+  try {
+    await sendPushNotification(
+      token,
+      '🏪 Boutique Premium',
+      `Votre boutique "${boutiqueData.nom}" a été créée avec succès`,
+      {
+        boutique_id: boutiqueId,
+        type: 'boutique_premium',
+        status: 'pending_payment'
+      }
+    );
+
+    console.log('🔔 Notification boutique envoyée');
+
+  } catch (err) {
+    console.error('❌ FCM boutique error:', err.message);
+  }
+} else {
+  console.warn('⚠️ Aucun token FCM utilisateur:', userId);
+}
 
       // METTRE À JOUR LE RÔLE
       await db.query(
