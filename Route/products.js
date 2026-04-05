@@ -61,9 +61,187 @@ const safeJsonParse = (str) => {
   }
 };
 
+
+
+
 // ----------------------------
-// GET /products — Liste complète (inchangé)
+// // GET /products — Récupère le feed principal des produits actifs avec
+// pagination, tri par boost/priorité/date, jointure vendeur, images Cloudinary
+// et statut like utilisateur.
 // ----------------------------
+router.get('/electronics/advanced', async (req, res) => {
+  try {
+    const userId = req.headers.authorization ? req.userId : null;
+
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const offset = (page - 1) * limit;
+
+    // 📍 GPS utilisateur (envoyé depuis le frontend)
+    const userLat = parseFloat(req.query.lat) || null;
+    const userLon = parseFloat(req.query.lon) || null;
+
+    // 🔑 CACHE
+    const cacheKey = `electronics:adv:${userId || 'guest'}:${page}:${userLat}:${userLon}`;
+    const cached = await redisClient.get(cacheKey);
+
+    if (cached) {
+      console.log("⚡ CACHE ADVANCED HIT");
+      return res.json(JSON.parse(cached));
+    }
+
+    // ============================
+    // 🧠 1. Récupérer catégories aimées
+    // ============================
+    let likedCategories = [];
+
+    if (userId) {
+      const [likes] = await db.query(`
+        SELECT DISTINCT p.category
+        FROM product_likes pl
+        JOIN products p ON pl.product_id = p.id
+        WHERE pl.user_id = ?
+        LIMIT 5
+      `, [userId]);
+
+      likedCategories = likes.map(l => l.category);
+    }
+
+    // ============================
+    // 🧠 2. PRODUITS ELECTRONICS
+    // ============================
+    const [products] = await db.query(`
+      SELECT 
+        p.*,
+
+        u.fullName AS seller_name,
+        u.profile_photo AS seller_avatar,
+
+        (
+          SELECT pi.absolute_url
+          FROM product_images pi
+          WHERE pi.product_id = p.id
+          LIMIT 1
+        ) AS image_url
+
+      FROM products p
+      LEFT JOIN utilisateurs u ON p.seller_id = u.id
+
+      WHERE p.category = 'electronics'
+      AND p.is_active = 1
+
+      LIMIT 150
+    `);
+
+    // ============================
+    // 🧠 3. SCORING IA (JS)
+    // ============================
+    const scored = products.map(p => {
+
+      let score = 0;
+
+      // 🔥 boost
+      if (p.is_boosted) score += 60;
+      if (p.is_featured) score += 30;
+
+      // 📊 engagement
+      score += (p.likes_count || 0) * 3;
+      score += (p.shares_count || 0) * 4;
+      score += (p.comments_count || 0) * 2;
+      score += (p.views_count || 0) * 1.5;
+      score += (p.sales || 0) * 5;
+
+      // 🎯 préférences utilisateur
+      if (likedCategories.includes(p.category)) {
+        score += 40;
+      }
+
+      // 📍 DISTANCE GPS
+      let distance = null;
+
+      if (userLat && userLon && p.latitude && p.longitude) {
+        const R = 6371;
+
+        const dLat = (p.latitude - userLat) * Math.PI / 180;
+        const dLon = (p.longitude - userLon) * Math.PI / 180;
+
+        const a =
+          Math.sin(dLat / 2) ** 2 +
+          Math.cos(userLat * Math.PI / 180) *
+          Math.cos(p.latitude * Math.PI / 180) *
+          Math.sin(dLon / 2) ** 2;
+
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        distance = R * c;
+
+        if (distance < 5) score += 50;
+        else if (distance < 20) score += 30;
+        else if (distance < 50) score += 10;
+      }
+
+      // 🧠 popularité globale
+      score += (p.popularity_score || 0) * 2;
+
+      return {
+        ...p,
+        score,
+        distance_km: distance
+      };
+    });
+
+    // ============================
+    // 🔥 TRI FINAL
+    // ============================
+    const sorted = scored.sort((a, b) => b.score - a.score);
+
+    // ============================
+    // 📄 PAGINATION
+    // ============================
+    const paginated = sorted.slice(offset, offset + limit);
+
+    // ============================
+    // 📦 FORMAT
+    // ============================
+    const result = paginated.map(p => ({
+      id: p.id,
+      title: p.title,
+      price: parseFloat(p.price),
+      image: p.image_url,
+      location: p.location,
+      score: p.score,
+      distance: p.distance_km,
+
+      seller: {
+        name: p.seller_name,
+        avatar: p.seller_avatar
+      }
+    }));
+
+    const response = {
+      success: true,
+      page,
+      count: result.length,
+      has_more: offset + limit < sorted.length,
+      products: result
+    };
+
+    // ============================
+    // ⚡ CACHE SAVE
+    // ============================
+    await redisClient.setEx(cacheKey, 300, JSON.stringify(response));
+
+    res.json(response);
+
+  } catch (error) {
+    console.error("❌ ADVANCED ELECTRONICS ERROR:", error);
+    res.status(500).json({ success: false });
+  }
+});
+
+
+
+
+
 // ----------------------------
 // GET /products — FEED PUBLIC
 // ----------------------------
