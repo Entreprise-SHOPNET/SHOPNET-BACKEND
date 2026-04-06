@@ -1,4 +1,5 @@
 
+
 const express = require('express');
 const router = express.Router();
 
@@ -7,7 +8,6 @@ const authMiddleware = require('../../middlewares/authMiddleware');
 const sendPushNotification = require('../../utils/sendPushNotification');
 
 router.use(authMiddleware);
-
 
 
 // ----------------- CRÉER UNE COMMANDE -----------------
@@ -27,10 +27,8 @@ router.post('/', async (req, res) => {
 
     await conn.beginTransaction();
 
-
-
     // -------------------------------------------------
-    // 1️⃣ VENDEUR DU PREMIER PRODUIT
+    // 1️⃣ VENDEUR + PRODUIT PRINCIPAL
     // -------------------------------------------------
     const [prodRow] = await conn.query(
       'SELECT seller_id, title FROM products WHERE id = ?',
@@ -43,8 +41,6 @@ router.post('/', async (req, res) => {
 
     const vendeur_id = prodRow[0].seller_id;
     const produit_nom = prodRow[0].title;
-
-
 
     // -------------------------------------------------
     // 2️⃣ CALCUL TOTAL
@@ -64,8 +60,6 @@ router.post('/', async (req, res) => {
       totalCommande += pRow[0].price * p.quantite;
     }
 
-
-
     // -------------------------------------------------
     // 3️⃣ NUMERO COMMANDE
     // -------------------------------------------------
@@ -75,8 +69,6 @@ router.post('/', async (req, res) => {
     );
 
     const numero_commande = (rows[0].dernier || 0) + 1;
-
-
 
     // -------------------------------------------------
     // 4️⃣ INSERT COMMANDE
@@ -98,8 +90,6 @@ router.post('/', async (req, res) => {
 
     const commandeId = result.insertId;
 
-
-
     // -------------------------------------------------
     // 5️⃣ PRODUITS COMMANDE
     // -------------------------------------------------
@@ -116,10 +106,26 @@ router.post('/', async (req, res) => {
       );
     }
 
+    // -------------------------------------------------
+    // 🖼️ 6️⃣ IMAGE PRODUIT PRINCIPAL
+    // -------------------------------------------------
+    const [imgRows] = await conn.query(
+      'SELECT image_path FROM product_images WHERE product_id = ? LIMIT 1',
+      [produits[0].produit_id]
+    );
 
+    let imageUrl = null;
+
+    if (imgRows.length > 0) {
+      const CLOUDINARY_BASE = `https://res.cloudinary.com/${process.env.CLOUD_NAME}/image/upload/`;
+
+      imageUrl = imgRows[0].image_path.startsWith("http")
+        ? imgRows[0].image_path
+        : `${CLOUDINARY_BASE}${imgRows[0].image_path}`;
+    }
 
     // -------------------------------------------------
-    // 6️⃣ NOTIFICATION DB
+    // 7️⃣ NOTIFICATION DB
     // -------------------------------------------------
     const notifContenu = `📦 Nouvelle commande pour "${produit_nom}" (#${numero_commande}).`;
 
@@ -129,17 +135,13 @@ router.post('/', async (req, res) => {
       [vendeur_id, 'commande', notifContenu]
     );
 
-
-
     // -------------------------------------------------
-    // 7️⃣ COMMIT
+    // 8️⃣ COMMIT
     // -------------------------------------------------
     await conn.commit();
 
-
-
     // -------------------------------------------------
-    // 🔔 8️⃣ PUSH NOTIFICATION (FCM CORRIGÉ)
+    // 🔔 9️⃣ PUSH NOTIFICATION FCM
     // -------------------------------------------------
     const [tokenRows] = await pool.query(
       'SELECT fcm_token FROM fcm_tokens WHERE user_id = ?',
@@ -158,7 +160,8 @@ router.post('/', async (req, res) => {
             commandeId,
             produit_nom,
             numero_commande,
-            type: 'commande'
+            type: 'commande',
+            image: imageUrl
           }
         );
 
@@ -169,8 +172,6 @@ router.post('/', async (req, res) => {
     } else {
       console.warn('⚠️ Aucun token FCM vendeur');
     }
-
-
 
     return res.json({
       success: true,
@@ -192,7 +193,6 @@ router.post('/', async (req, res) => {
     conn.release();
   }
 });
-
 
 
 // ----------------- GET COMMANDES -----------------
@@ -233,7 +233,6 @@ router.get('/', async (req, res) => {
     });
   }
 });
-
 
 
 // ----------------- UPDATE STATUS -----------------
