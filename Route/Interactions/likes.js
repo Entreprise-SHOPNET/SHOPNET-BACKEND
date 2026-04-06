@@ -1,7 +1,5 @@
 
 
-
-
 const express = require('express');
 const router = express.Router();
 
@@ -61,7 +59,27 @@ router.post('/:productId/like', authenticate, async (req, res) => {
 
       console.log('🔹 Like ajouté:', productId);
 
-      // 🔔 NOUVEAU SYSTÈME FCM (CORRIGÉ)
+      // ---------------------------------------------------------
+      // 🖼️ RÉCUPÉRER IMAGE PRODUIT
+      // ---------------------------------------------------------
+      const [imageRows] = await db.query(
+        'SELECT image_path FROM product_images WHERE product_id = ? LIMIT 1',
+        [productId]
+      );
+
+      let imageUrl = null;
+
+      if (imageRows.length > 0) {
+        const CLOUDINARY_BASE = `https://res.cloudinary.com/${process.env.CLOUD_NAME}/image/upload/`;
+
+        imageUrl = imageRows[0].image_path.startsWith("http")
+          ? imageRows[0].image_path
+          : `${CLOUDINARY_BASE}${imageRows[0].image_path}`;
+      }
+
+      // ---------------------------------------------------------
+      // 🔔 NOTIFICATION VENDEUR AVEC IMAGE
+      // ---------------------------------------------------------
       const [sellerRows] = await db.query(
         'SELECT fcm_token FROM fcm_tokens WHERE user_id = ?',
         [product.seller_id]
@@ -74,7 +92,10 @@ router.post('/:productId/like', authenticate, async (req, res) => {
           sellerRows[0].fcm_token,
           '💥 Nouveau Like !',
           'Votre produit attire de l’attention sur SHOPNET',
-          { productId }
+          {
+            productId,
+            image: imageUrl
+          }
         );
       } else {
         console.warn('⚠️ Aucun token FCM pour vendeur:', product.seller_id);
