@@ -9,7 +9,7 @@ const sendPushNotification = require('../../utils/sendPushNotification');
 const EXPIRATION_DELAY = 30 * 24 * 60 * 60 * 1000;
 
 // =====================================================
-// 📦 GET DETAIL COMMANDE (SAFE FRONTEND)
+// 📦 GET DETAIL COMMANDE
 // =====================================================
 router.get('/:id', authenticateToken, async (req, res) => {
   const commandeId = req.params.id;
@@ -92,7 +92,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
 
 
 // =====================================================
-// 🔥 UPDATE STATUS + PUSH NOTIFICATION FULL SYSTEM
+// 🔥 UPDATE STATUS + PUSH SIMPLE CONTACT
 // =====================================================
 router.put('/:id/status', authenticateToken, async (req, res) => {
   try {
@@ -100,6 +100,7 @@ router.put('/:id/status', authenticateToken, async (req, res) => {
     const { status } = req.body;
 
     const validStatuses = ['en_attente', 'confirmee', 'annulee', 'livree'];
+
     if (!validStatuses.includes(status)) {
       return res.status(400).json({
         success: false,
@@ -123,22 +124,14 @@ router.put('/:id/status', authenticateToken, async (req, res) => {
     }
 
     // -------------------------------------------------
-    // 2️⃣ GET DATA CLIENT + PRODUCT + VENDEUR
+    // 2️⃣ GET DATA CLIENT + VENDEUR
     // -------------------------------------------------
     const [rows] = await db.query(`
       SELECT 
         c.numero_commande,
-        c.id,
         u.id AS clientId,
         u.fullName,
-        u.phone,
-        (
-          SELECT p.id
-          FROM commande_produits cp
-          JOIN products p ON cp.produit_id = p.id
-          WHERE cp.commande_id = c.id
-          LIMIT 1
-        ) AS productId
+        u.phone
       FROM commandes c
       JOIN utilisateurs u ON c.acheteur_id = u.id
       WHERE c.id = ?
@@ -152,9 +145,14 @@ router.put('/:id/status', authenticateToken, async (req, res) => {
     const [img] = await db.query(`
       SELECT image_path
       FROM product_images
-      WHERE product_id = ?
+      WHERE product_id = (
+        SELECT produit_id
+        FROM commande_produits
+        WHERE commande_id = ?
+        LIMIT 1
+      )
       LIMIT 1
-    `, [data.productId]);
+    `, [commandeId]);
 
     let imageUrl = null;
 
@@ -167,7 +165,7 @@ router.put('/:id/status', authenticateToken, async (req, res) => {
     }
 
     // -------------------------------------------------
-    // 4️⃣ TEXT NOTIFICATION
+    // 4️⃣ NOTIFICATION SIMPLE
     // -------------------------------------------------
     let title = '';
     let body = '';
@@ -188,14 +186,14 @@ router.put('/:id/status', authenticateToken, async (req, res) => {
     }
 
     // -------------------------------------------------
-    // 5️⃣ LINKS VENDEUR
+    // 5️⃣ CONTACT VENDEUR (SIMPLE TEXT ACTION)
     // -------------------------------------------------
     const phone = '243' + data.phone.replace(/^0/, '');
     const whatsappLink = `https://wa.me/${phone}`;
     const callLink = `tel:${phone}`;
 
     // -------------------------------------------------
-    // 6️⃣ PUSH NOTIFICATION ACHETEUR
+    // 6️⃣ PUSH NOTIFICATION (SIMPLE + CLEAN)
     // -------------------------------------------------
     const [tokens] = await db.query(
       'SELECT fcm_token FROM fcm_tokens WHERE user_id = ?',
@@ -210,9 +208,13 @@ router.put('/:id/status', authenticateToken, async (req, res) => {
         {
           commandeId,
           status,
-          image: imageUrl,
+
+          // 🔥 UNE SEULE ACTION
+          actionText: "Contacter le vendeur",
           whatsapp: whatsappLink,
-          call: callLink
+          call: callLink,
+
+          image: imageUrl
         },
         imageUrl
       );
@@ -222,8 +224,7 @@ router.put('/:id/status', authenticateToken, async (req, res) => {
       success: true,
       message: 'Statut mis à jour + notification envoyée',
       whatsappLink,
-      callLink,
-      image: imageUrl
+      callLink
     });
 
   } catch (err) {
