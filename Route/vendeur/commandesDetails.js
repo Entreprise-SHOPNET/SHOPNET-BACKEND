@@ -8,14 +8,14 @@ const sendPushNotification = require('../../utils/sendPushNotification');
 
 const EXPIRATION_DELAY = 30 * 24 * 60 * 60 * 1000;
 
-// -----------------------------------------------------
-// GET /api/commandes/:id
-// -----------------------------------------------------
+// =====================================================
+// 📦 GET DETAIL COMMANDE (SAFE FRONTEND)
+// =====================================================
 router.get('/:id', authenticateToken, async (req, res) => {
   const commandeId = req.params.id;
 
   try {
-    const [commandeRows] = await db.query(`
+    const [rows] = await db.query(`
       SELECT 
         c.id AS commandeId,
         c.date_commande,
@@ -24,34 +24,36 @@ router.get('/:id', authenticateToken, async (req, res) => {
         c.mode_paiement,
         c.numero_commande,
         u.id AS clientId,
-        u.fullName AS clientNom,
-        u.phone AS clientTel,
-        u.email AS clientEmail,
-        u.address AS clientAdresse
+        u.fullName,
+        u.phone,
+        u.email,
+        u.address
       FROM commandes c
       JOIN utilisateurs u ON c.acheteur_id = u.id
       WHERE c.id = ?
       LIMIT 1
     `, [commandeId]);
 
-    if (commandeRows.length === 0) {
-      return res.status(404).json({ success: false, error: 'Commande non trouvée' });
+    if (rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Commande non trouvée'
+      });
     }
 
-    const commande = commandeRows[0];
+    const c = rows[0];
 
-    const dateCommande = new Date(commande.date_commande);
-    const now = new Date();
-
-    if (commande.status !== 'expirée' && now - dateCommande > EXPIRATION_DELAY) {
-      await db.query(`UPDATE commandes SET status = 'expirée' WHERE id = ?`, [commandeId]);
-      commande.status = 'expirée';
-    }
+    const client = {
+      nom: c.fullName,
+      telephone: c.phone,
+      email: c.email,
+      adresse: c.address
+    };
 
     const [produits] = await db.query(`
       SELECT 
         p.id,
-        p.title,
+        p.title AS nom,
         cp.quantite,
         cp.prix_unitaire,
         (
@@ -66,24 +68,32 @@ router.get('/:id', authenticateToken, async (req, res) => {
       WHERE cp.commande_id = ?
     `, [commandeId]);
 
-    res.json({
+    return res.json({
       success: true,
       commande: {
-        ...commande,
+        commandeId: c.commandeId,
+        date_commande: c.date_commande,
+        statut: c.status,
+        total: c.total,
+        mode_paiement: c.mode_paiement,
+        client,
         produits
       }
     });
 
   } catch (error) {
     console.error(error);
-    res.status(500).json({ success: false, error: 'Erreur serveur' });
+    return res.status(500).json({
+      success: false,
+      error: 'Erreur serveur'
+    });
   }
 });
 
 
-// -----------------------------------------------------
-// PUT /api/commandes/:id/status
-// -----------------------------------------------------
+// =====================================================
+// 🔥 UPDATE STATUS + PUSH NOTIFICATION FULL SYSTEM
+// =====================================================
 router.put('/:id/status', authenticateToken, async (req, res) => {
   try {
     const commandeId = req.params.id;
@@ -91,23 +101,29 @@ router.put('/:id/status', authenticateToken, async (req, res) => {
 
     const validStatuses = ['en_attente', 'confirmee', 'annulee', 'livree'];
     if (!validStatuses.includes(status)) {
-      return res.status(400).json({ success: false, error: 'Statut invalide' });
+      return res.status(400).json({
+        success: false,
+        error: 'Statut invalide'
+      });
     }
 
     // -------------------------------------------------
     // 1️⃣ UPDATE STATUS
     // -------------------------------------------------
-    const [updateResult] = await db.query(
+    const [update] = await db.query(
       'UPDATE commandes SET status = ? WHERE id = ?',
       [status, commandeId]
     );
 
-    if (updateResult.affectedRows === 0) {
-      return res.status(404).json({ success: false, error: 'Commande non trouvée' });
+    if (update.affectedRows === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Commande introuvable'
+      });
     }
 
     // -------------------------------------------------
-    // 2️⃣ INFOS CLIENT + VENDEUR
+    // 2️⃣ GET DATA CLIENT + PRODUCT + VENDEUR
     // -------------------------------------------------
     const [rows] = await db.query(`
       SELECT 
@@ -128,16 +144,12 @@ router.put('/:id/status', authenticateToken, async (req, res) => {
       WHERE c.id = ?
     `, [commandeId]);
 
-    if (rows.length === 0) {
-      return res.status(404).json({ success: false });
-    }
-
     const data = rows[0];
 
     // -------------------------------------------------
     // 3️⃣ IMAGE PRODUIT
     // -------------------------------------------------
-    const [imageRows] = await db.query(`
+    const [img] = await db.query(`
       SELECT image_path
       FROM product_images
       WHERE product_id = ?
@@ -146,54 +158,53 @@ router.put('/:id/status', authenticateToken, async (req, res) => {
 
     let imageUrl = null;
 
-    if (imageRows.length > 0) {
-      const CLOUDINARY_BASE = `https://res.cloudinary.com/${process.env.CLOUD_NAME}/image/upload/`;
+    if (img.length > 0) {
+      const CLOUD = `https://res.cloudinary.com/${process.env.CLOUD_NAME}/image/upload/`;
 
-      imageUrl = imageRows[0].image_path.startsWith('http')
-        ? imageRows[0].image_path
-        : CLOUDINARY_BASE + imageRows[0].image_path;
+      imageUrl = img[0].image_path.startsWith('http')
+        ? img[0].image_path
+        : CLOUD + img[0].image_path;
     }
 
     // -------------------------------------------------
-    // 4️⃣ MESSAGE NOTIFICATION
+    // 4️⃣ TEXT NOTIFICATION
     // -------------------------------------------------
     let title = '';
     let body = '';
 
     if (status === 'confirmee') {
       title = '✅ Commande acceptée';
-      body = `Votre commande #${data.numero_commande} a été acceptée 🎉`;
+      body = `Commande #${data.numero_commande} acceptée 🎉`;
     }
 
     if (status === 'annulee') {
       title = '❌ Commande refusée';
-      body = `Votre commande #${data.numero_commande} a été refusée.`;
+      body = `Commande #${data.numero_commande} refusée`;
     }
 
     if (status === 'livree') {
       title = '📦 Commande livrée';
-      body = `Votre commande #${data.numero_commande} a été livrée.`;
+      body = `Commande #${data.numero_commande} livrée`;
     }
 
     // -------------------------------------------------
-    // 5️⃣ WHATSAPP + CALL LINK VENDEUR
+    // 5️⃣ LINKS VENDEUR
     // -------------------------------------------------
     const phone = '243' + data.phone.replace(/^0/, '');
     const whatsappLink = `https://wa.me/${phone}`;
-
     const callLink = `tel:${phone}`;
 
     // -------------------------------------------------
     // 6️⃣ PUSH NOTIFICATION ACHETEUR
     // -------------------------------------------------
-    const [tokenRows] = await db.query(
+    const [tokens] = await db.query(
       'SELECT fcm_token FROM fcm_tokens WHERE user_id = ?',
       [data.clientId]
     );
 
-    if (tokenRows.length > 0 && tokenRows[0].fcm_token) {
+    if (tokens.length > 0 && tokens[0].fcm_token) {
       await sendPushNotification(
-        tokenRows[0].fcm_token,
+        tokens[0].fcm_token,
         title,
         body,
         {
@@ -211,12 +222,16 @@ router.put('/:id/status', authenticateToken, async (req, res) => {
       success: true,
       message: 'Statut mis à jour + notification envoyée',
       whatsappLink,
-      callLink
+      callLink,
+      image: imageUrl
     });
 
   } catch (err) {
-    console.error('Erreur status commande:', err);
-    return res.status(500).json({ success: false, error: 'Erreur serveur' });
+    console.error(err);
+    return res.status(500).json({
+      success: false,
+      error: 'Erreur serveur'
+    });
   }
 });
 
