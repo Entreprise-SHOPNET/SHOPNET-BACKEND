@@ -142,21 +142,11 @@ router.post('/:productId/like', authenticate, async (req, res) => {
 
 
 
-const express = require('express');
-const router = express.Router();
-
-const db = require('../../db');
-const sendPushNotification = require('../../utils/sendPushNotification');
-
-
-// =====================================================
-// 🔥 1. FONCTION PRINCIPALE TREND PUSH
-// =====================================================
-async function sendTrendPush() {
+router.post('/trend/push', async (req, res) => {
   try {
 
     // =====================================================
-    // TOP PRODUITS TREND
+    // 🔥 TOP PRODUITS TREND
     // =====================================================
     const [products] = await db.query(`
       SELECT 
@@ -180,14 +170,16 @@ async function sendTrendPush() {
     `);
 
     if (!products.length) {
-      console.log("⚠️ Aucun produit tendance");
-      return;
+      return res.json({
+        success: true,
+        message: 'Aucun produit tendance'
+      });
     }
 
     const trending = products[0];
 
     // =====================================================
-    // IMAGE PRODUIT
+    // 🖼 IMAGE PRODUIT
     // =====================================================
     const [imageRows] = await db.query(
       'SELECT image_path FROM product_images WHERE product_id = ? LIMIT 1',
@@ -205,7 +197,7 @@ async function sendTrendPush() {
     }
 
     // =====================================================
-    // USERS
+    // 👥 USERS
     // =====================================================
     const [users] = await db.query(`
       SELECT u.id, f.fcm_token
@@ -215,7 +207,7 @@ async function sendTrendPush() {
     `);
 
     // =====================================================
-    // PUSH NOTIFICATION
+    // 🔔 PUSH NOTIFICATION
     // =====================================================
     for (const user of users) {
       await sendPushNotification(
@@ -230,29 +222,15 @@ async function sendTrendPush() {
       );
     }
 
-    console.log(`✅ Trend push envoyé à ${users.length} utilisateurs`);
-
-  } catch (error) {
-    console.error('❌ Trend push error:', error);
-  }
-}
-
-
-// =====================================================
-// 🚀 2. ROUTE PUBLIQUE (POSTMAN TEST)
-// =====================================================
-router.post('/trend/push', async (req, res) => {
-  try {
-
-    await sendTrendPush();
-
     return res.json({
       success: true,
-      message: 'Trend push déclenché manuellement'
+      message: 'Trend push envoyé',
+      productId: trending.id,
+      users: users.length
     });
 
   } catch (error) {
-    console.error(error);
+    console.error('❌ Trend push error:', error);
     return res.status(500).json({
       success: false,
       message: 'Erreur serveur'
@@ -260,15 +238,4 @@ router.post('/trend/push', async (req, res) => {
   }
 });
 
-
-// =====================================================
-// ⏰ 3. AUTO TRIGGER CHAQUE 30 MINUTES
-// =====================================================
-setInterval(() => {
-  console.log("⏰ Auto Trend Push déclenché (30 min)");
-  sendTrendPush();
-}, 30 * 60 * 1000);
-
-
-// =====================================================
 module.exports = router;
