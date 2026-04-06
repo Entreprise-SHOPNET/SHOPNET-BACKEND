@@ -2,27 +2,31 @@
 
 const express = require('express');
 const router = express.Router();
-const db = require('../../db'); // connexion MySQL (mysql2/promise)
+const db = require('../../db');
 const authenticateToken = require('../../middlewares/authMiddleware');
+const sendPushNotification = require('../../utils/sendPushNotification');
 
-const EXPIRATION_DELAY = 30 * 24 * 60 * 60 * 1000; // 30 jours
+const EXPIRATION_DELAY = 30 * 24 * 60 * 60 * 1000;
 
+// -----------------------------------------------------
 // GET /api/commandes/:id
+// -----------------------------------------------------
 router.get('/:id', authenticateToken, async (req, res) => {
   const commandeId = req.params.id;
 
   try {
-    // 1. Récupérer la commande + client
     const [commandeRows] = await db.query(`
       SELECT 
-        c.id AS commandeId, 
-        c.date_commande, 
-        c.status, 
-        c.total, 
+        c.id AS commandeId,
+        c.date_commande,
+        c.status,
+        c.total,
         c.mode_paiement,
-        u.fullName AS clientNom, 
-        u.phone AS clientTel, 
-        u.email AS clientEmail, 
+        c.numero_commande,
+        u.id AS clientId,
+        u.fullName AS clientNom,
+        u.phone AS clientTel,
+        u.email AS clientEmail,
         u.address AS clientAdresse
       FROM commandes c
       JOIN utilisateurs u ON c.acheteur_id = u.id
@@ -36,7 +40,6 @@ router.get('/:id', authenticateToken, async (req, res) => {
 
     const commande = commandeRows[0];
 
-    // 2. Vérifier expiration
     const dateCommande = new Date(commande.date_commande);
     const now = new Date();
 
@@ -45,68 +48,55 @@ router.get('/:id', authenticateToken, async (req, res) => {
       commande.status = 'expirée';
     }
 
-    // 3. Récupérer les produits liés à la commande
     const [produits] = await db.query(`
       SELECT 
         p.id,
         p.title,
         cp.quantite,
-        cp.prix_unitaire AS prix_unitaire_commande,
+        cp.prix_unitaire,
         (
-          SELECT pi.absolute_url 
-          FROM product_images pi 
-          WHERE pi.product_id = p.id 
-          ORDER BY pi.id ASC 
+          SELECT pi.absolute_url
+          FROM product_images pi
+          WHERE pi.product_id = p.id
+          ORDER BY pi.id ASC
           LIMIT 1
-        ) AS image_url
+        ) AS image
       FROM commande_produits cp
       JOIN products p ON cp.produit_id = p.id
       WHERE cp.commande_id = ?
     `, [commandeId]);
 
-    // 4. Réponse JSON
-    const response = {
-      commandeId: commande.commandeId,
-      date_commande: commande.date_commande,
-      statut: commande.status,
-      total: commande.total,
-      mode_paiement: commande.mode_paiement,
-      client: {
-        nom: commande.clientNom,
-        telephone: commande.clientTel,
-        email: commande.clientEmail,
-        adresse: commande.clientAdresse,
-      },
-      produits: produits.map(p => ({
-        id: p.id,
-        nom: p.title,
-        prix_unitaire: p.prix_unitaire_commande,
-        quantite: p.quantite,
-        image: p.image_url || null,
-      })),
-    };
+    res.json({
+      success: true,
+      commande: {
+        ...commande,
+        produits
+      }
+    });
 
-    res.json({ success: true, commande: response });
   } catch (error) {
-    console.error('Erreur récupération commande:', error);
+    console.error(error);
     res.status(500).json({ success: false, error: 'Erreur serveur' });
   }
 });
 
+
+// -----------------------------------------------------
 // PUT /api/commandes/:id/status
-// Mettre à jour le statut et préparer message WhatsApp
+// -----------------------------------------------------
 router.put('/:id/status', authenticateToken, async (req, res) => {
   try {
     const commandeId = req.params.id;
     const { status } = req.body;
 
-    // Vérifier que le statut est valide
     const validStatuses = ['en_attente', 'confirmee', 'annulee', 'livree'];
     if (!validStatuses.includes(status)) {
       return res.status(400).json({ success: false, error: 'Statut invalide' });
     }
 
-    // 1️⃣ Mettre à jour le statut
+    // -------------------------------------------------
+    // 1️⃣ UPDATE STATUS
+    // -------------------------------------------------
     const [updateResult] = await db.query(
       'UPDATE commandes SET status = ? WHERE id = ?',
       [status, commandeId]
@@ -116,44 +106,116 @@ router.put('/:id/status', authenticateToken, async (req, res) => {
       return res.status(404).json({ success: false, error: 'Commande non trouvée' });
     }
 
-    // 2️⃣ Récupérer infos acheteur
-    const [rows] = await db.query(
-      `SELECT c.numero_commande, u.fullName AS client_nom, u.phone AS client_tel
-       FROM commandes c
-       JOIN utilisateurs u ON c.acheteur_id = u.id
-       WHERE c.id = ?`,
-      [commandeId]
-    );
+    // -------------------------------------------------
+    // 2️⃣ INFOS CLIENT + VENDEUR
+    // -------------------------------------------------
+    const [rows] = await db.query(`
+      SELECT 
+        c.numero_commande,
+        c.id,
+        u.id AS clientId,
+        u.fullName,
+        u.phone,
+        (
+          SELECT p.id
+          FROM commande_produits cp
+          JOIN products p ON cp.produit_id = p.id
+          WHERE cp.commande_id = c.id
+          LIMIT 1
+        ) AS productId
+      FROM commandes c
+      JOIN utilisateurs u ON c.acheteur_id = u.id
+      WHERE c.id = ?
+    `, [commandeId]);
 
     if (rows.length === 0) {
-      return res.status(404).json({ success: false, error: 'Commande ou client introuvable' });
+      return res.status(404).json({ success: false });
     }
 
-    const commande = rows[0];
+    const data = rows[0];
 
-    // 3️⃣ Construire message WhatsApp selon statut
-    let message = '';
+    // -------------------------------------------------
+    // 3️⃣ IMAGE PRODUIT
+    // -------------------------------------------------
+    const [imageRows] = await db.query(`
+      SELECT image_path
+      FROM product_images
+      WHERE product_id = ?
+      LIMIT 1
+    `, [data.productId]);
+
+    let imageUrl = null;
+
+    if (imageRows.length > 0) {
+      const CLOUDINARY_BASE = `https://res.cloudinary.com/${process.env.CLOUD_NAME}/image/upload/`;
+
+      imageUrl = imageRows[0].image_path.startsWith('http')
+        ? imageRows[0].image_path
+        : CLOUDINARY_BASE + imageRows[0].image_path;
+    }
+
+    // -------------------------------------------------
+    // 4️⃣ MESSAGE NOTIFICATION
+    // -------------------------------------------------
+    let title = '';
+    let body = '';
+
     if (status === 'confirmee') {
-      message = `Bonjour ${commande.client_nom}, votre commande #${commande.numero_commande} a été ACCEPTÉE par le vendeur.`;
-    } else if (status === 'annulee') {
-      message = `Bonjour ${commande.client_nom}, votre commande #${commande.numero_commande} a été REFUSÉE par le vendeur.`;
-    } else {
-      message = `Bonjour ${commande.client_nom}, le statut de votre commande #${commande.numero_commande} a été mis à jour : ${status}.`;
+      title = '✅ Commande acceptée';
+      body = `Votre commande #${data.numero_commande} a été acceptée 🎉`;
     }
 
-    // 4️⃣ Générer lien WhatsApp
-    const phone = '243' + commande.client_tel.replace(/^0/, ''); // RDC sans +
-    const waLink = `https://wa.me/${phone}?text=${encodeURIComponent(message)}`;
+    if (status === 'annulee') {
+      title = '❌ Commande refusée';
+      body = `Votre commande #${data.numero_commande} a été refusée.`;
+    }
 
-    // 5️⃣ Retourner lien WhatsApp au frontend
+    if (status === 'livree') {
+      title = '📦 Commande livrée';
+      body = `Votre commande #${data.numero_commande} a été livrée.`;
+    }
+
+    // -------------------------------------------------
+    // 5️⃣ WHATSAPP + CALL LINK VENDEUR
+    // -------------------------------------------------
+    const phone = '243' + data.phone.replace(/^0/, '');
+    const whatsappLink = `https://wa.me/${phone}`;
+
+    const callLink = `tel:${phone}`;
+
+    // -------------------------------------------------
+    // 6️⃣ PUSH NOTIFICATION ACHETEUR
+    // -------------------------------------------------
+    const [tokenRows] = await db.query(
+      'SELECT fcm_token FROM fcm_tokens WHERE user_id = ?',
+      [data.clientId]
+    );
+
+    if (tokenRows.length > 0 && tokenRows[0].fcm_token) {
+      await sendPushNotification(
+        tokenRows[0].fcm_token,
+        title,
+        body,
+        {
+          commandeId,
+          status,
+          image: imageUrl,
+          whatsapp: whatsappLink,
+          call: callLink
+        },
+        imageUrl
+      );
+    }
+
     return res.json({
       success: true,
-      message: 'Statut mis à jour et message WhatsApp prêt',
-      whatsappLink: waLink
+      message: 'Statut mis à jour + notification envoyée',
+      whatsappLink,
+      callLink
     });
 
   } catch (err) {
-    console.error('Erreur PUT /commandes/:id/status:', err);
+    console.error('Erreur status commande:', err);
     return res.status(500).json({ success: false, error: 'Erreur serveur' });
   }
 });
