@@ -9,9 +9,8 @@ const authenticateToken = require('../middlewares/authMiddleware');
 const sendPushNotification = require('../utils/sendPushNotification');
 
 
-
 // -----------------------------------------------------
-// 🛒 AJOUT AU PANIER + NOTIFICATION VENDEUR
+// 🛒 AJOUT AU PANIER + NOTIFICATION VENDEUR (AVEC IMAGE)
 // -----------------------------------------------------
 router.post('/', authenticateToken, async (req, res) => {
   const userId = Number(req.userId);
@@ -53,7 +52,7 @@ router.post('/', authenticateToken, async (req, res) => {
 
     if (existing.length > 0) {
       await db.query(
-        'UPDATE carts SET quantity = quantity + ? WHERE user_id = ? AND product_id = ?',
+        'UPDATE carts SET quantity = quantity + ?, updated_at = NOW() WHERE user_id = ? AND product_id = ?',
         [quantity || 1, userId, product_id]
       );
     } else {
@@ -82,10 +81,19 @@ router.post('/', authenticateToken, async (req, res) => {
       );
     }
 
-
+    // -------------------------------------------------
+    // 🖼️ EXTRACTION IMAGE PRODUIT
+    // -------------------------------------------------
+    let productImage = null;
+    try {
+      const parsedImages = JSON.parse(images || '[]');
+      productImage = parsedImages.length > 0 ? parsedImages[0] : null;
+    } catch (e) {
+      productImage = null;
+    }
 
     // -------------------------------------------------
-    // 🔔 2️⃣ NOTIFICATION VENDEUR (FCM)
+    // 🔔 2️⃣ NOTIFICATION VENDEUR (FCM + IMAGE)
     // -------------------------------------------------
     if (seller_id) {
       const [sellerRows] = await db.query(
@@ -97,24 +105,23 @@ router.post('/', authenticateToken, async (req, res) => {
         try {
           await sendPushNotification(
             sellerRows[0].fcm_token,
-            '🛒 Nouveau ajout au panier',
-            `"${title}" a été ajouté au panier.`,
+            '🛒 Nouveau client intéressé',
+            `Quelqu’un s’intéresse à "${title}" 👀`,
             {
               productId: product_id,
               buyerId: userId
-            }
+            },
+            productImage // ✅ IMAGE ICI
           );
 
           console.log('🔔 Notification panier envoyée au vendeur:', seller_id);
         } catch (err) {
-          console.error('FCM cart error:', err.message);
+          console.error('❌ FCM cart error:', err.message);
         }
       } else {
         console.warn('⚠️ Aucun token FCM vendeur:', seller_id);
       }
     }
-
-
 
     return res.json({
       success: true,
@@ -130,7 +137,6 @@ router.post('/', authenticateToken, async (req, res) => {
     });
   }
 });
-
 
 
 // -----------------------------------------------------
@@ -158,7 +164,6 @@ router.get('/', authenticateToken, async (req, res) => {
     });
   }
 });
-
 
 
 // -----------------------------------------------------
