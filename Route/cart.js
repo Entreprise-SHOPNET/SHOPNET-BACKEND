@@ -10,7 +10,7 @@ const sendPushNotification = require('../utils/sendPushNotification');
 
 
 // -----------------------------------------------------
-// 🛒 AJOUT AU PANIER + NOTIFICATION VENDEUR (AVEC IMAGE)
+// 🛒 AJOUT AU PANIER + NOTIFICATION VENDEUR (AVEC IMAGE FIXÉE)
 // -----------------------------------------------------
 router.post('/', authenticateToken, async (req, res) => {
   const userId = Number(req.userId);
@@ -42,6 +42,7 @@ router.post('/', authenticateToken, async (req, res) => {
   }
 
   try {
+
     // -------------------------------------------------
     // 1️⃣ AJOUT / UPDATE PANIER
     // -------------------------------------------------
@@ -82,18 +83,25 @@ router.post('/', authenticateToken, async (req, res) => {
     }
 
     // -------------------------------------------------
-    // 🖼️ EXTRACTION IMAGE PRODUIT
+    // 🖼️ IMAGE FIABLE (comme LIKE)
     // -------------------------------------------------
-    let productImage = null;
-    try {
-      const parsedImages = JSON.parse(images || '[]');
-      productImage = parsedImages.length > 0 ? parsedImages[0] : null;
-    } catch (e) {
-      productImage = null;
+    const [imageRows] = await db.query(
+      'SELECT image_path FROM product_images WHERE product_id = ? LIMIT 1',
+      [product_id]
+    );
+
+    let imageUrl = null;
+
+    if (imageRows.length > 0) {
+      const CLOUDINARY_BASE = `https://res.cloudinary.com/${process.env.CLOUD_NAME}/image/upload/`;
+
+      imageUrl = imageRows[0].image_path.startsWith("http")
+        ? imageRows[0].image_path
+        : `${CLOUDINARY_BASE}${imageRows[0].image_path}`;
     }
 
     // -------------------------------------------------
-    // 🔔 2️⃣ NOTIFICATION VENDEUR (FCM + IMAGE)
+    // 🔔 NOTIFICATION VENDEUR (FCM + IMAGE)
     // -------------------------------------------------
     if (seller_id) {
       const [sellerRows] = await db.query(
@@ -109,12 +117,14 @@ router.post('/', authenticateToken, async (req, res) => {
             `Quelqu’un s’intéresse à "${title}" 👀`,
             {
               productId: product_id,
-              buyerId: userId
+              buyerId: userId,
+              image: imageUrl || ''
             },
-            productImage // ✅ IMAGE ICI
+            imageUrl
           );
 
           console.log('🔔 Notification panier envoyée au vendeur:', seller_id);
+
         } catch (err) {
           console.error('❌ FCM cart error:', err.message);
         }
