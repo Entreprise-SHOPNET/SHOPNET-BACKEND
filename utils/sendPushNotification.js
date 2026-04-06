@@ -1,7 +1,6 @@
 
 
-
-const admin = require("../config/firebase"); // firebase-admin
+const admin = require("../config/firebase");
 
 async function sendPushNotification(token, title, body, data = {}) {
   try {
@@ -13,7 +12,7 @@ async function sendPushNotification(token, title, body, data = {}) {
     console.log("📡 Envoi FCM vers :", token);
 
     const message = {
-      token: token,
+      token,
 
       notification: {
         title: title || "SHOPNET",
@@ -21,23 +20,31 @@ async function sendPushNotification(token, title, body, data = {}) {
       },
 
       data: Object.keys(data || {}).reduce((acc, key) => {
-        acc[key] = String(data[key]); // FCM exige STRING
+        acc[key] = String(data[key]);
         return acc;
       }, {}),
 
+      // ✅ ANDROID CORRIGÉ (IMPORTANT)
       android: {
         priority: "high",
         notification: {
           sound: "default",
           channelId: "default",
+
+          // 🔥 AJOUT IMAGE ICI
+          imageUrl: data.image || undefined,
         },
       },
 
+      // ✅ iOS (optionnel mais propre)
       apns: {
         payload: {
           aps: {
             sound: "default",
           },
+        },
+        fcm_options: {
+          image: data.image || undefined,
         },
       },
     };
