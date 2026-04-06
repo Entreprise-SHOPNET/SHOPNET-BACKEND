@@ -8,7 +8,6 @@ const db = require('../../db');
 const sendPushNotification = require('../../utils/sendPushNotification');
 
 
-
 // -----------------------------------------------------
 // 💬 AJOUT COMMENTAIRE + NOTIFICATION VENDEUR
 // -----------------------------------------------------
@@ -47,8 +46,6 @@ router.post('/:productId/comment', authMiddleware, async (req, res) => {
 
     const product = productRows[0];
 
-
-
     // -------------------------------------------------
     // 2️⃣ INSERT COMMENTAIRE
     // -------------------------------------------------
@@ -61,10 +58,26 @@ router.post('/:productId/comment', authMiddleware, async (req, res) => {
 
     console.log('🔹 Commentaire ajouté:', { productId, userId });
 
+    // -------------------------------------------------
+    // 🖼️ 3️⃣ RÉCUPÉRER IMAGE PRODUIT
+    // -------------------------------------------------
+    const [imageRows] = await db.query(
+      'SELECT image_path FROM product_images WHERE product_id = ? LIMIT 1',
+      [productId]
+    );
 
+    let imageUrl = null;
+
+    if (imageRows.length > 0) {
+      const CLOUDINARY_BASE = `https://res.cloudinary.com/${process.env.CLOUD_NAME}/image/upload/`;
+
+      imageUrl = imageRows[0].image_path.startsWith("http")
+        ? imageRows[0].image_path
+        : `${CLOUDINARY_BASE}${imageRows[0].image_path}`;
+    }
 
     // -------------------------------------------------
-    // 3️⃣ NOTIFICATION VENDEUR (FCM SAFE)
+    // 🔔 4️⃣ NOTIFICATION VENDEUR (FCM SAFE)
     // -------------------------------------------------
     if (product.seller_id) {
 
@@ -83,7 +96,8 @@ router.post('/:productId/comment', authMiddleware, async (req, res) => {
             'Quelqu’un a commenté votre produit sur SHOPNET',
             {
               productId,
-              type: 'comment'
+              type: 'comment',
+              image: imageUrl
             }
           );
 
@@ -96,8 +110,6 @@ router.post('/:productId/comment', authMiddleware, async (req, res) => {
         console.warn('⚠️ Aucun token FCM vendeur:', product.seller_id);
       }
     }
-
-
 
     return res.json({
       success: true,
@@ -113,7 +125,6 @@ router.post('/:productId/comment', authMiddleware, async (req, res) => {
     });
   }
 });
-
 
 
 // -----------------------------------------------------
@@ -145,7 +156,6 @@ router.get('/:productId/comments', async (req, res) => {
     });
   }
 });
-
 
 
 // -----------------------------------------------------
