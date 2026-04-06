@@ -146,7 +146,7 @@ router.post('/trend/push', async (req, res) => {
   try {
 
     // =====================================================
-    // 🔥 TOP PRODUITS TREND
+    // 🔥 PRODUIT LE PLUS TREND
     // =====================================================
     const [products] = await db.query(`
       SELECT 
@@ -166,7 +166,7 @@ router.post('/trend/push', async (req, res) => {
         COUNT(DISTINCT v.id) + 
         COUNT(DISTINCT c.user_id)*2
       ) DESC
-      LIMIT 5
+      LIMIT 1
     `);
 
     if (!products.length) {
@@ -209,24 +209,35 @@ router.post('/trend/push', async (req, res) => {
     // =====================================================
     // 🔔 PUSH NOTIFICATION
     // =====================================================
+    let success = 0;
+
     for (const user of users) {
-      await sendPushNotification(
-        user.fcm_token,
-        '🔥 Produit tendance sur SHOPNET',
-        `${trending.title} est très populaire en ce moment`,
-        {
-          productId: trending.id,
-          type: 'trend',
-          image: imageUrl
-        }
-      );
+      try {
+        await sendPushNotification(
+          user.fcm_token,
+          '🔥 Produit tendance sur SHOPNET',
+          `${trending.title} est très populaire en ce moment`,
+          {
+            productId: String(trending.id),
+            type: 'trend',
+            image: imageUrl || ''
+          }
+        );
+
+        success++;
+
+      } catch (err) {
+        console.log("❌ Push error user:", user.id);
+      }
     }
 
     return res.json({
       success: true,
       message: 'Trend push envoyé',
-      productId: trending.id,
-      users: users.length
+      product: trending,
+      users: users.length,
+      successSent: success,
+      image: imageUrl
     });
 
   } catch (error) {
