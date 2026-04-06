@@ -142,12 +142,21 @@ router.post('/:productId/like', authenticate, async (req, res) => {
 
 
 
+const express = require('express');
+const router = express.Router();
 
-router.post('/trend/push', authenticate, async (req, res) => {
+const db = require('../../db');
+const sendPushNotification = require('../../utils/sendPushNotification');
+
+
+// =====================================================
+// 🔥 1. FONCTION PRINCIPALE TREND PUSH
+// =====================================================
+async function sendTrendPush() {
   try {
 
     // =====================================================
-    // 1️⃣ TOP PRODUITS TREND (SCORE VIRAL)
+    // TOP PRODUITS TREND
     // =====================================================
     const [products] = await db.query(`
       SELECT 
@@ -156,27 +165,29 @@ router.post('/trend/push', authenticate, async (req, res) => {
         p.seller_id,
         COUNT(DISTINCT l.id) AS likes,
         COUNT(DISTINCT v.id) AS views,
-        COUNT(DISTINCT c.id) AS carts
+        COUNT(DISTINCT c.user_id) AS carts
       FROM products p
       LEFT JOIN product_likes l ON l.product_id = p.id
       LEFT JOIN product_views v ON v.product_id = p.id
       LEFT JOIN carts c ON c.product_id = p.id
       GROUP BY p.id
-      ORDER BY (COUNT(DISTINCT l.id)*3 + COUNT(DISTINCT v.id) + COUNT(DISTINCT c.id)*2) DESC
+      ORDER BY (
+        COUNT(DISTINCT l.id)*3 + 
+        COUNT(DISTINCT v.id) + 
+        COUNT(DISTINCT c.user_id)*2
+      ) DESC
       LIMIT 5
     `);
 
     if (!products.length) {
-      return res.json({
-        success: true,
-        message: 'Aucun produit tendance'
-      });
+      console.log("⚠️ Aucun produit tendance");
+      return;
     }
 
-    const trending = products[0]; // top viral
+    const trending = products[0];
 
     // =====================================================
-    // 2️⃣ IMAGE PRODUIT
+    // IMAGE PRODUIT
     // =====================================================
     const [imageRows] = await db.query(
       'SELECT image_path FROM product_images WHERE product_id = ? LIMIT 1',
@@ -194,7 +205,7 @@ router.post('/trend/push', authenticate, async (req, res) => {
     }
 
     // =====================================================
-    // 3️⃣ USERS À NOTIFIER
+    // USERS
     // =====================================================
     const [users] = await db.query(`
       SELECT u.id, f.fcm_token
@@ -204,10 +215,9 @@ router.post('/trend/push', authenticate, async (req, res) => {
     `);
 
     // =====================================================
-    // 4️⃣ PUSH NOTIFICATION
+    // PUSH NOTIFICATION
     // =====================================================
     for (const user of users) {
-
       await sendPushNotification(
         user.fcm_token,
         '🔥 Produit tendance sur SHOPNET',
@@ -216,20 +226,33 @@ router.post('/trend/push', authenticate, async (req, res) => {
           productId: trending.id,
           type: 'trend',
           image: imageUrl
-        },
-        imageUrl
+        }
       );
     }
 
-    return res.json({
-      success: true,
-      message: 'Push tendance envoyé',
-      productId: trending.id,
-      users: users.length
-    });
+    console.log(`✅ Trend push envoyé à ${users.length} utilisateurs`);
 
   } catch (error) {
     console.error('❌ Trend push error:', error);
+  }
+}
+
+
+// =====================================================
+// 🚀 2. ROUTE PUBLIQUE (POSTMAN TEST)
+// =====================================================
+router.post('/trend/push', async (req, res) => {
+  try {
+
+    await sendTrendPush();
+
+    return res.json({
+      success: true,
+      message: 'Trend push déclenché manuellement'
+    });
+
+  } catch (error) {
+    console.error(error);
     return res.status(500).json({
       success: false,
       message: 'Erreur serveur'
@@ -237,4 +260,15 @@ router.post('/trend/push', authenticate, async (req, res) => {
   }
 });
 
+
+// =====================================================
+// ⏰ 3. AUTO TRIGGER CHAQUE 30 MINUTES
+// =====================================================
+setInterval(() => {
+  console.log("⏰ Auto Trend Push déclenché (30 min)");
+  sendTrendPush();
+}, 30 * 60 * 1000);
+
+
+// =====================================================
 module.exports = router;
