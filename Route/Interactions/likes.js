@@ -139,4 +139,102 @@ router.post('/:productId/like', authenticate, async (req, res) => {
   }
 });
 
+
+
+
+
+router.post('/trend/push', authenticate, async (req, res) => {
+  try {
+
+    // =====================================================
+    // 1️⃣ TOP PRODUITS TREND (SCORE VIRAL)
+    // =====================================================
+    const [products] = await db.query(`
+      SELECT 
+        p.id,
+        p.title,
+        p.seller_id,
+        COUNT(DISTINCT l.id) AS likes,
+        COUNT(DISTINCT v.id) AS views,
+        COUNT(DISTINCT c.id) AS carts
+      FROM products p
+      LEFT JOIN product_likes l ON l.product_id = p.id
+      LEFT JOIN product_views v ON v.product_id = p.id
+      LEFT JOIN carts c ON c.product_id = p.id
+      GROUP BY p.id
+      ORDER BY (COUNT(DISTINCT l.id)*3 + COUNT(DISTINCT v.id) + COUNT(DISTINCT c.id)*2) DESC
+      LIMIT 5
+    `);
+
+    if (!products.length) {
+      return res.json({
+        success: true,
+        message: 'Aucun produit tendance'
+      });
+    }
+
+    const trending = products[0]; // top viral
+
+    // =====================================================
+    // 2️⃣ IMAGE PRODUIT
+    // =====================================================
+    const [imageRows] = await db.query(
+      'SELECT image_path FROM product_images WHERE product_id = ? LIMIT 1',
+      [trending.id]
+    );
+
+    let imageUrl = null;
+
+    if (imageRows.length > 0) {
+      const CLOUDINARY_BASE = `https://res.cloudinary.com/${process.env.CLOUD_NAME}/image/upload/`;
+
+      imageUrl = imageRows[0].image_path.startsWith('http')
+        ? imageRows[0].image_path
+        : CLOUDINARY_BASE + imageRows[0].image_path;
+    }
+
+    // =====================================================
+    // 3️⃣ USERS À NOTIFIER
+    // =====================================================
+    const [users] = await db.query(`
+      SELECT u.id, f.fcm_token
+      FROM utilisateurs u
+      JOIN fcm_tokens f ON f.user_id = u.id
+      WHERE f.fcm_token IS NOT NULL
+    `);
+
+    // =====================================================
+    // 4️⃣ PUSH NOTIFICATION
+    // =====================================================
+    for (const user of users) {
+
+      await sendPushNotification(
+        user.fcm_token,
+        '🔥 Produit tendance sur SHOPNET',
+        `${trending.title} est très populaire en ce moment`,
+        {
+          productId: trending.id,
+          type: 'trend',
+          image: imageUrl
+        },
+        imageUrl
+      );
+    }
+
+    return res.json({
+      success: true,
+      message: 'Push tendance envoyé',
+      productId: trending.id,
+      users: users.length
+    });
+
+  } catch (error) {
+    console.error('❌ Trend push error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Erreur serveur'
+    });
+  }
+});
+
 module.exports = router;
