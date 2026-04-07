@@ -28,53 +28,58 @@ router.get('/cron/cart-abandoned', async (req, res) => {
     const sent = new Set();
 
     for (const item of rows) {
-      if (!item.fcm_token) continue;
-
-      const key = `${item.user_id}-${item.product_id}`;
-      if (sent.has(key)) continue;
-      sent.add(key);
-
-      // 🖼 IMAGE SAFE (FIX PROPRE)
-      let imageUrl = '';
-
       try {
-        if (item.images) {
-          const images = JSON.parse(item.images);
+        if (!item.fcm_token) continue;
 
-          if (Array.isArray(images) && images.length > 0) {
-            imageUrl = images[0];
+        // ❌ éviter doublons
+        const key = `${item.user_id}-${item.product_id}`;
+        if (sent.has(key)) continue;
+        sent.add(key);
+
+        // --------------------------------------------------
+        // 🖼 IMAGE SAFE (ULTRA STABLE)
+        // --------------------------------------------------
+        let imageUrl = null;
+
+        if (item.images) {
+          try {
+            const images = JSON.parse(item.images);
+            if (Array.isArray(images) && images.length > 0) {
+              imageUrl = images[0];
+            }
+          } catch (e) {
+            console.log("⚠️ image parse error");
+            imageUrl = null;
           }
         }
-      } catch (e) {
-        console.log("⚠️ image parse error");
-        imageUrl = '';
-      }
 
-      // ⏱ TIME LOGIC
-      const hours = Math.floor(
-        (Date.now() - new Date(item.updated_at)) / (1000 * 60 * 60)
-      );
+        // --------------------------------------------------
+        // ⏱ LOGIQUE TEMPS
+        // --------------------------------------------------
+        const hours = Math.floor(
+          (Date.now() - new Date(item.updated_at)) / (1000 * 60 * 60)
+        );
 
-      let title = '';
-      let message = '';
+        let title = '';
+        let message = '';
 
-      if (hours >= 2 && hours < 6) {
-        title = '🛒 Ton panier t’attend';
-        message = `Tu as laissé "${item.title || 'ce produit'}" dans ton panier. Il est encore disponible 🔥`;
-      } 
-      else if (hours >= 6 && hours < 12) {
-        title = '⏳ Toujours là pour toi';
-        message = `"${item.title || 'Ce produit'}" est toujours dans ton panier. Termine ta commande maintenant 💡`;
-      } 
-      else {
-        title = '🔥 Dernier rappel';
-        message = `"${item.title || 'Ce produit'}" risque de ne plus être disponible. Finalise ta commande 🛒`;
-      }
+        if (hours >= 2 && hours < 6) {
+          title = '🛒 Ton panier t’attend';
+          message = `Tu as laissé "${item.title || 'ce produit'}" dans ton panier. Il est encore disponible 🔥`;
+        } 
+        else if (hours >= 6 && hours < 12) {
+          title = '⏳ Toujours là pour toi';
+          message = `"${item.title || 'Ce produit'}" est toujours dans ton panier. Termine ta commande 💡`;
+        } 
+        else {
+          title = '🔥 Dernier rappel';
+          message = `"${item.title || 'Ce produit'}" risque de ne plus être disponible. Finalise ta commande 🛒`;
+        }
 
-      try {
-        console.log("📲 Sending push to:", item.fcm_token);
-
-        await sendPushNotification(
+        // --------------------------------------------------
+        // 🔔 PUSH NOTIFICATION (SAFE MODE)
+        // --------------------------------------------------
+        const result = await sendPushNotification(
           item.fcm_token,
           title,
           message,
@@ -82,20 +87,24 @@ router.get('/cron/cart-abandoned', async (req, res) => {
             type: 'cart_abandoned',
             productId: String(item.product_id),
             userId: String(item.user_id),
-            image: imageUrl
+            image: imageUrl || ''
           }
         );
 
-        console.log('✅ Push sent user:', item.user_id);
+        if (result) {
+          console.log('✅ Push OK user:', item.user_id);
+        } else {
+          console.log('❌ Push failed user:', item.user_id);
+        }
 
       } catch (err) {
-        console.error('❌ FCM error:', err.message);
+        console.error('❌ ITEM ERROR:', err.message);
       }
     }
 
     return res.json({
       success: true,
-      message: 'Cart abandoned notifications sent',
+      message: 'Cart abandoned notifications executed',
       count: rows.length
     });
 
@@ -108,7 +117,6 @@ router.get('/cron/cart-abandoned', async (req, res) => {
     });
   }
 });
-
 
 // -----------------------------------------------------
 // 🛒 AJOUT AU PANIER + NOTIFICATION VENDEUR (AVEC IMAGE FIXÉE)
