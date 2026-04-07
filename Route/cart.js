@@ -10,7 +10,6 @@ const sendPushNotification = require('../utils/sendPushNotification');
 
 
 
-
 router.get('/cron/cart-abandoned', async (req, res) => {
   try {
     const [rows] = await db.query(`
@@ -35,15 +34,20 @@ router.get('/cron/cart-abandoned', async (req, res) => {
       if (sent.has(key)) continue;
       sent.add(key);
 
-      // 🖼 IMAGE SAFE
-      let imageUrl = null;
+      // 🖼 IMAGE SAFE (FIX PROPRE)
+      let imageUrl = '';
+
       try {
-        const images = JSON.parse(item.images || '[]');
-        if (Array.isArray(images) && images.length > 0) {
-          imageUrl = images[0];
+        if (item.images) {
+          const images = JSON.parse(item.images);
+
+          if (Array.isArray(images) && images.length > 0) {
+            imageUrl = images[0];
+          }
         }
       } catch (e) {
         console.log("⚠️ image parse error");
+        imageUrl = '';
       }
 
       // ⏱ TIME LOGIC
@@ -78,9 +82,8 @@ router.get('/cron/cart-abandoned', async (req, res) => {
             type: 'cart_abandoned',
             productId: String(item.product_id),
             userId: String(item.user_id),
-            image: imageUrl || ''
-          },
-          imageUrl
+            image: imageUrl
+          }
         );
 
         console.log('✅ Push sent user:', item.user_id);
