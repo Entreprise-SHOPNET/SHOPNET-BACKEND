@@ -9,14 +9,13 @@ const authenticateToken = require('../middlewares/authMiddleware');
 const sendPushNotification = require('../utils/sendPushNotification');
 
 
+
 router.get('/cron/cart-abandoned', async (req, res) => {
   try {
     const [rows] = await db.query(`
       SELECT 
         c.user_id,
         c.product_id,
-        c.title,
-        c.images,
         c.updated_at,
         f.fcm_token
       FROM carts c
@@ -34,57 +33,71 @@ router.get('/cron/cart-abandoned', async (req, res) => {
         if (sent.has(key)) continue;
         sent.add(key);
 
-        // 🖼 IMAGE SAFE
-        let imageUrl = '';
+        // -----------------------------------------------------
+        // 🔹 GET PRODUCT INFO (COMME LIKE)
+        // -----------------------------------------------------
+        const [productRows] = await db.query(
+          'SELECT title FROM products WHERE id = ?',
+          [item.product_id]
+        );
 
-        try {
-          const raw = item.images;
+        const title = productRows.length > 0
+          ? productRows[0].title
+          : 'ce produit';
 
-          if (raw) {
-            if (typeof raw === 'string' && raw.startsWith('http')) {
-              imageUrl = raw;
-            } else {
-              const images = JSON.parse(raw);
-              if (Array.isArray(images) && images.length > 0) {
-                imageUrl = images[0];
-              }
-            }
-          }
-        } catch (e) {
-          console.log("⚠️ image parse error");
-          imageUrl = '';
+        // -----------------------------------------------------
+        // 🖼 IMAGE (SAME LOGIC LIKE)
+        // -----------------------------------------------------
+        const [imageRows] = await db.query(
+          'SELECT image_path FROM product_images WHERE product_id = ? LIMIT 1',
+          [item.product_id]
+        );
+
+        let imageUrl = null;
+
+        if (imageRows.length > 0) {
+          const CLOUDINARY_BASE = `https://res.cloudinary.com/${process.env.CLOUD_NAME}/image/upload/`;
+
+          imageUrl = imageRows[0].image_path.startsWith("http")
+            ? imageRows[0].image_path
+            : `${CLOUDINARY_BASE}${imageRows[0].image_path}`;
         }
 
-        // ⏱ TIME LOGIC
+        // -----------------------------------------------------
+        // ⏱ LOGIQUE TEMPS
+        // -----------------------------------------------------
         const hours = Math.floor(
           (Date.now() - new Date(item.updated_at)) / (1000 * 60 * 60)
         );
 
-        let title = '';
+        let notifTitle = '';
         let message = '';
 
         if (hours >= 2 && hours < 6) {
-          title = '🛒 Ton panier t’attend';
-          message = `Tu as laissé "${item.title || 'ce produit'}" dans ton panier.`;
+          notifTitle = '🛒 Ton panier t’attend';
+          message = `Tu as laissé "${title}" dans ton panier 🔥`;
         } 
         else if (hours >= 6 && hours < 12) {
-          title = '⏳ Toujours disponible';
-          message = `"${item.title || 'Ce produit'}" est toujours dans ton panier.`;
+          notifTitle = '⏳ Toujours disponible';
+          message = `"${title}" est encore dans ton panier 💡`;
         } 
         else {
-          title = '🔥 Dernier rappel';
-          message = `"${item.title || 'Ce produit'}" risque de disparaître.`;
+          notifTitle = '🔥 Dernier rappel';
+          message = `"${title}" risque de disparaître 🛒`;
         }
 
-        // 🔔 PUSH NOTIFICATION
+        // -----------------------------------------------------
+        // 🔔 SEND PUSH (SAME LIKE STRUCTURE)
+        // -----------------------------------------------------
+        console.log('📲 Sending push to:', item.fcm_token);
+
         await sendPushNotification(
           item.fcm_token,
-          title,
+          notifTitle,
           message,
           {
             type: 'cart_abandoned',
-            productId: String(item.product_id),
-            userId: String(item.user_id),
+            productId: item.product_id,
             image: imageUrl
           }
         );
@@ -111,9 +124,6 @@ router.get('/cron/cart-abandoned', async (req, res) => {
     });
   }
 });
-
-
-
 
 
 // -----------------------------------------------------
