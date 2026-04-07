@@ -19,14 +19,22 @@ router.get('/cron/cart-abandoned', async (req, res) => {
         c.product_id,
         c.title,
         c.images,
+        c.updated_at,
         f.fcm_token
       FROM carts c
       JOIN fcm_tokens f ON f.user_id = c.user_id
-      WHERE c.updated_at < NOW() - INTERVAL 1 HOUR
+      WHERE c.updated_at BETWEEN NOW() - INTERVAL 24 HOUR AND NOW() - INTERVAL 2 HOUR
     `);
+
+    const sent = new Set();
 
     for (const item of rows) {
       if (!item.fcm_token) continue;
+
+      // ❌ éviter doublons (même user + produit)
+      const key = `${item.user_id}-${item.product_id}`;
+      if (sent.has(key)) continue;
+      sent.add(key);
 
       // 🖼️ IMAGE SAFE
       let imageUrl = null;
@@ -38,24 +46,51 @@ router.get('/cron/cart-abandoned', async (req, res) => {
         }
       } catch (e) {}
 
-      await sendPushNotification(
-        item.fcm_token,
-        '🛒 Ton panier t’attend',
-        `📦 ${item.title || 'Produit'} toujours disponible 🔥`,
-        {
-          type: 'cart_abandoned',
-          productId: item.product_id,
-          image: imageUrl || ''
-        },
-        imageUrl
+      // ⏱️ logique temps (2h, 12h, 24h)
+      const hoursLeft = Math.floor(
+        (Date.now() - new Date(item.updated_at)) / (1000 * 60 * 60)
       );
 
-      console.log('📲 Cart reminder sent with image:', item.user_id);
+      let title = '';
+      let message = '';
+
+      if (hoursLeft >= 2 && hoursLeft < 6) {
+        title = '🛒 Ton panier t’attend';
+        message = `Tu as laissé "${item.title || 'ce produit'}" dans ton panier. Il est encore disponible 🔥`;
+      } 
+      else if (hoursLeft >= 6 && hoursLeft < 12) {
+        title = '⏳ Tu hésites encore ?';
+        message = `"${item.title || 'Ce produit'}" est toujours dans ton panier. Ne le laisse pas t’échapper 💡`;
+      } 
+      else {
+        title = '🔥 Dernier rappel';
+        message = `"${item.title || 'Ce produit'}" pourrait bientôt ne plus être disponible. Finalise ta commande maintenant 🛒`;
+      }
+
+      try {
+        await sendPushNotification(
+          item.fcm_token,
+          title,
+          message,
+          {
+            type: 'cart_abandoned',
+            productId: item.product_id,
+            userId: item.user_id,
+            image: imageUrl || ''
+          },
+          imageUrl
+        );
+
+        console.log('📲 Cart reminder sent:', item.user_id);
+
+      } catch (err) {
+        console.error('❌ push error:', err.message);
+      }
     }
 
     return res.json({
       success: true,
-      message: 'Cart abandoned notifications sent with images',
+      message: 'Cart abandoned notifications sent',
       count: rows.length
     });
 
@@ -68,7 +103,6 @@ router.get('/cron/cart-abandoned', async (req, res) => {
     });
   }
 });
-
 
 
 // -----------------------------------------------------
