@@ -13,98 +13,30 @@ const sendPushNotification = require('../utils/sendPushNotification');
 router.get('/cron/cart-abandoned', async (req, res) => {
   try {
     const [rows] = await db.query(`
-      SELECT 
-        c.user_id,
-        c.product_id,
-        c.title,
-        c.images,
-        c.updated_at,
-        f.fcm_token
+      SELECT DISTINCT c.user_id, f.fcm_token
       FROM carts c
       JOIN fcm_tokens f ON f.user_id = c.user_id
-      WHERE c.updated_at BETWEEN NOW() - INTERVAL 24 HOUR AND NOW() - INTERVAL 2 HOUR
+      WHERE c.updated_at < NOW() - INTERVAL 1 HOUR
     `);
 
-    const sent = new Set();
+    for (const user of rows) {
+      if (!user.fcm_token) continue;
 
-    for (const item of rows) {
-      try {
-        if (!item.fcm_token) continue;
-
-        // ❌ éviter doublons
-        const key = `${item.user_id}-${item.product_id}`;
-        if (sent.has(key)) continue;
-        sent.add(key);
-
-        // --------------------------------------------------
-        // 🖼 IMAGE SAFE (ULTRA STABLE)
-        // --------------------------------------------------
-        let imageUrl = null;
-
-        if (item.images) {
-          try {
-            const images = JSON.parse(item.images);
-            if (Array.isArray(images) && images.length > 0) {
-              imageUrl = images[0];
-            }
-          } catch (e) {
-            console.log("⚠️ image parse error");
-            imageUrl = null;
-          }
+      await sendPushNotification(
+        user.fcm_token,
+        '🛒 Ton panier t’attend',
+        'Tes produits sont encore disponibles 🔥 Finalise ta commande maintenant',
+        {
+          type: 'cart_abandoned'
         }
+      );
 
-        // --------------------------------------------------
-        // ⏱ LOGIQUE TEMPS
-        // --------------------------------------------------
-        const hours = Math.floor(
-          (Date.now() - new Date(item.updated_at)) / (1000 * 60 * 60)
-        );
-
-        let title = '';
-        let message = '';
-
-        if (hours >= 2 && hours < 6) {
-          title = '🛒 Ton panier t’attend';
-          message = `Tu as laissé "${item.title || 'ce produit'}" dans ton panier. Il est encore disponible 🔥`;
-        } 
-        else if (hours >= 6 && hours < 12) {
-          title = '⏳ Toujours là pour toi';
-          message = `"${item.title || 'Ce produit'}" est toujours dans ton panier. Termine ta commande 💡`;
-        } 
-        else {
-          title = '🔥 Dernier rappel';
-          message = `"${item.title || 'Ce produit'}" risque de ne plus être disponible. Finalise ta commande 🛒`;
-        }
-
-        // --------------------------------------------------
-        // 🔔 PUSH NOTIFICATION (SAFE MODE)
-        // --------------------------------------------------
-        const result = await sendPushNotification(
-          item.fcm_token,
-          title,
-          message,
-          {
-            type: 'cart_abandoned',
-            productId: String(item.product_id),
-            userId: String(item.user_id),
-            image: imageUrl || ''
-          }
-        );
-
-        if (result) {
-          console.log('✅ Push OK user:', item.user_id);
-        } else {
-          console.log('❌ Push failed user:', item.user_id);
-        }
-
-      } catch (err) {
-        console.error('❌ ITEM ERROR:', err.message);
-      }
+      console.log('📲 Cart reminder sent:', user.user_id);
     }
 
     return res.json({
       success: true,
-      message: 'Cart abandoned notifications executed',
+      message: 'Cart abandoned notifications sent',
       count: rows.length
     });
 
