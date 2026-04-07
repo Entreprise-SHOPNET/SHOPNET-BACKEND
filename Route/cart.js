@@ -9,6 +9,68 @@ const authenticateToken = require('../middlewares/authMiddleware');
 const sendPushNotification = require('../utils/sendPushNotification');
 
 
+
+
+router.get('/cron/cart-abandoned', async (req, res) => {
+  try {
+    const [rows] = await db.query(`
+      SELECT 
+        c.user_id,
+        c.product_id,
+        c.title,
+        c.images,
+        f.fcm_token
+      FROM carts c
+      JOIN fcm_tokens f ON f.user_id = c.user_id
+      WHERE c.updated_at < NOW() - INTERVAL 1 HOUR
+    `);
+
+    for (const item of rows) {
+      if (!item.fcm_token) continue;
+
+      // 🖼️ IMAGE SAFE
+      let imageUrl = null;
+
+      try {
+        const images = JSON.parse(item.images || '[]');
+        if (images.length > 0) {
+          imageUrl = images[0];
+        }
+      } catch (e) {}
+
+      await sendPushNotification(
+        item.fcm_token,
+        '🛒 Ton panier t’attend',
+        `📦 ${item.title || 'Produit'} toujours disponible 🔥`,
+        {
+          type: 'cart_abandoned',
+          productId: item.product_id,
+          image: imageUrl || ''
+        },
+        imageUrl
+      );
+
+      console.log('📲 Cart reminder sent with image:', item.user_id);
+    }
+
+    return res.json({
+      success: true,
+      message: 'Cart abandoned notifications sent with images',
+      count: rows.length
+    });
+
+  } catch (err) {
+    console.error('❌ cart-abandoned error:', err.message);
+
+    return res.status(500).json({
+      success: false,
+      error: err.message
+    });
+  }
+});
+
+
+
 // -----------------------------------------------------
 // 🛒 AJOUT AU PANIER + NOTIFICATION VENDEUR (AVEC IMAGE FIXÉE)
 // -----------------------------------------------------
