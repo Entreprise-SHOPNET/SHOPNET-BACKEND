@@ -31,60 +31,62 @@ router.get('/cron/cart-abandoned', async (req, res) => {
     for (const item of rows) {
       if (!item.fcm_token) continue;
 
-      // ❌ éviter doublons (même user + produit)
       const key = `${item.user_id}-${item.product_id}`;
       if (sent.has(key)) continue;
       sent.add(key);
 
-      // 🖼️ IMAGE SAFE
+      // 🖼 IMAGE SAFE
       let imageUrl = null;
-
       try {
         const images = JSON.parse(item.images || '[]');
-        if (images.length > 0) {
+        if (Array.isArray(images) && images.length > 0) {
           imageUrl = images[0];
         }
-      } catch (e) {}
+      } catch (e) {
+        console.log("⚠️ image parse error");
+      }
 
-      // ⏱️ logique temps (2h, 12h, 24h)
-      const hoursLeft = Math.floor(
+      // ⏱ TIME LOGIC
+      const hours = Math.floor(
         (Date.now() - new Date(item.updated_at)) / (1000 * 60 * 60)
       );
 
       let title = '';
       let message = '';
 
-      if (hoursLeft >= 2 && hoursLeft < 6) {
+      if (hours >= 2 && hours < 6) {
         title = '🛒 Ton panier t’attend';
         message = `Tu as laissé "${item.title || 'ce produit'}" dans ton panier. Il est encore disponible 🔥`;
       } 
-      else if (hoursLeft >= 6 && hoursLeft < 12) {
-        title = '⏳ Tu hésites encore ?';
-        message = `"${item.title || 'Ce produit'}" est toujours dans ton panier. Ne le laisse pas t’échapper 💡`;
+      else if (hours >= 6 && hours < 12) {
+        title = '⏳ Toujours là pour toi';
+        message = `"${item.title || 'Ce produit'}" est toujours dans ton panier. Termine ta commande maintenant 💡`;
       } 
       else {
         title = '🔥 Dernier rappel';
-        message = `"${item.title || 'Ce produit'}" pourrait bientôt ne plus être disponible. Finalise ta commande maintenant 🛒`;
+        message = `"${item.title || 'Ce produit'}" risque de ne plus être disponible. Finalise ta commande 🛒`;
       }
 
       try {
+        console.log("📲 Sending push to:", item.fcm_token);
+
         await sendPushNotification(
           item.fcm_token,
           title,
           message,
           {
             type: 'cart_abandoned',
-            productId: item.product_id,
-            userId: item.user_id,
+            productId: String(item.product_id),
+            userId: String(item.user_id),
             image: imageUrl || ''
           },
           imageUrl
         );
 
-        console.log('📲 Cart reminder sent:', item.user_id);
+        console.log('✅ Push sent user:', item.user_id);
 
       } catch (err) {
-        console.error('❌ push error:', err.message);
+        console.error('❌ FCM error:', err.message);
       }
     }
 
