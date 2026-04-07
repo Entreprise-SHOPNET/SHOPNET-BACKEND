@@ -12,6 +12,122 @@ const authenticateToken = require('../middlewares/authMiddleware');
 const sendPushNotification = require('../utils/sendPushNotification');
 
 
+router.get('/cron/cart-abandoned', async (req, res) => {
+  try {
+    const [rows] = await db.query(`
+      SELECT 
+        c.user_id,
+        c.product_id,
+        c.updated_at,
+        f.fcm_token
+      FROM carts c
+      JOIN fcm_tokens f ON f.user_id = c.user_id
+      WHERE c.updated_at BETWEEN NOW() - INTERVAL 24 HOUR AND NOW() - INTERVAL 2 HOUR
+    `);
+
+    const sent = new Set();
+
+    for (const item of rows) {
+      try {
+        if (!item.fcm_token) continue;
+
+        const key = `${item.user_id}-${item.product_id}`;
+        if (sent.has(key)) continue;
+        sent.add(key);
+
+        // -----------------------------------------------------
+        // 🔹 GET PRODUCT INFO (COMME LIKE)
+        // -----------------------------------------------------
+        const [productRows] = await db.query(
+          'SELECT title FROM products WHERE id = ?',
+          [item.product_id]
+        );
+
+        const title = productRows.length > 0
+          ? productRows[0].title
+          : 'ce produit';
+
+        // -----------------------------------------------------
+        // 🖼 IMAGE (SAME LOGIC LIKE)
+        // -----------------------------------------------------
+        const [imageRows] = await db.query(
+          'SELECT image_path FROM product_images WHERE product_id = ? LIMIT 1',
+          [item.product_id]
+        );
+
+        let imageUrl = null;
+
+        if (imageRows.length > 0) {
+          const CLOUDINARY_BASE = `https://res.cloudinary.com/${process.env.CLOUD_NAME}/image/upload/`;
+
+          imageUrl = imageRows[0].image_path.startsWith("http")
+            ? imageRows[0].image_path
+            : `${CLOUDINARY_BASE}${imageRows[0].image_path}`;
+        }
+
+        // -----------------------------------------------------
+        // ⏱ LOGIQUE TEMPS
+        // -----------------------------------------------------
+        const hours = Math.floor(
+          (Date.now() - new Date(item.updated_at)) / (1000 * 60 * 60)
+        );
+
+        let notifTitle = '';
+        let message = '';
+
+        if (hours >= 2 && hours < 6) {
+          notifTitle = '🛒 Ton panier t’attend';
+          message = `Tu as laissé "${title}" dans ton panier 🔥`;
+        } 
+        else if (hours >= 6 && hours < 12) {
+          notifTitle = '⏳ Toujours disponible';
+          message = `"${title}" est encore dans ton panier 💡`;
+        } 
+        else {
+          notifTitle = '🔥 Dernier rappel';
+          message = `"${title}" risque de disparaître 🛒`;
+        }
+
+        // -----------------------------------------------------
+        // 🔔 SEND PUSH (SAME LIKE STRUCTURE)
+        // -----------------------------------------------------
+        console.log('📲 Sending push to:', item.fcm_token);
+
+        await sendPushNotification(
+          item.fcm_token,
+          notifTitle,
+          message,
+          {
+            type: 'cart_abandoned',
+            productId: item.product_id,
+            image: imageUrl
+          }
+        );
+
+        console.log('✅ Push sent user:', item.user_id);
+
+      } catch (err) {
+        console.error('❌ item error:', err.message);
+      }
+    }
+
+    return res.json({
+      success: true,
+      message: 'Cart abandoned notifications sent',
+      count: rows.length
+    });
+
+  } catch (err) {
+    console.error('❌ cart-abandoned error:', err.message);
+
+    return res.status(500).json({
+      success: false,
+      error: err.message
+    });
+  }
+});
+
+
 
 // -----------------------------------------------------
 // 🛒 AJOUT AU PANIER + NOTIFICATION VENDEUR
