@@ -605,6 +605,171 @@ router.get('/maison/ai', async (req, res) => {
 
 
 
+// ==============================
+// GET /ai/computers — FEED IA ORDINATEURS (PRO SHOPNET)
+// ==============================
+router.get('/ai/computers', async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const offset = (page - 1) * limit;
+
+    const cacheKey = `ai:computers:${page}`;
+    const cached = await redisClient.get(cacheKey);
+
+    if (cached) {
+      return res.json(JSON.parse(cached));
+    }
+
+    // ============================
+    // 🧠 1. GET PRODUCTS
+    // ============================
+    const [products] = await db.query(`
+      SELECT 
+        p.*,
+        u.fullName AS seller_name,
+        u.profile_photo AS seller_avatar,
+        (
+          SELECT pi.absolute_url
+          FROM product_images pi
+          WHERE pi.product_id = p.id
+          LIMIT 1
+        ) AS image_url
+      FROM products p
+      LEFT JOIN utilisateurs u ON p.seller_id = u.id
+      WHERE p.is_active = 1
+    `);
+
+    // ============================
+    // 🧠 2. IA CATEGORY DETECTION
+    // ============================
+    function detectCategory(title, description) {
+      const text = `${title} ${description}`.toLowerCase();
+
+      if (
+        text.includes('pc') ||
+        text.includes('ordinateur') ||
+        text.includes('laptop') ||
+        text.includes('portable') ||
+        text.includes('macbook') ||
+        text.includes('desktop') ||
+        text.includes('gaming') ||
+        text.includes('hp') ||
+        text.includes('dell') ||
+        text.includes('lenovo') ||
+        text.includes('asus') ||
+        text.includes('msi') ||
+        text.includes('acer')
+      ) {
+        return 'computers';
+      }
+
+      return 'other';
+    }
+
+    // ============================
+    // 🧠 3. FILTER STRICT IA
+    // ============================
+    const filtered = products.filter(p => {
+      const cat = detectCategory(p.title, p.description);
+      return cat === 'computers';
+    });
+
+    // ============================
+    // 🧠 4. SCORING IA
+    // ============================
+    const scored = filtered.map(p => {
+      const text = `${p.title} ${p.description}`.toLowerCase();
+
+      let score = 0;
+
+      // 🔥 Boost system
+      if (p.is_boosted) score += 80;
+      if (p.is_featured) score += 40;
+
+      // 📊 Engagement
+      score += (p.likes_count || 0) * 3;
+      score += (p.views_count || 0) * 1.5;
+      score += (p.comments_count || 0) * 2;
+      score += (p.sales || 0) * 6;
+
+      // 💻 BONUS ORDINATEUR PUR
+      if (text.includes('gaming')) score += 30;
+      if (text.includes('laptop')) score += 20;
+      if (text.includes('macbook')) score += 40;
+
+      // 💰 Prix attractif
+      if (p.price < 300) score += 30;
+      else if (p.price < 800) score += 15;
+
+      // 🧠 Popularité
+      score += (p.popularity_score || 0) * 2;
+
+      return {
+        ...p,
+        score,
+        ai_category: 'computers'
+      };
+    });
+
+    // ============================
+    // 🔥 5. SORT BY IA SCORE
+    // ============================
+    const sorted = scored.sort((a, b) => b.score - a.score);
+
+    // ============================
+    // 📄 6. PAGINATION
+    // ============================
+    const paginated = sorted.slice(offset, offset + limit);
+
+    // ============================
+    // 📦 7. FORMAT RESPONSE
+    // ============================
+    const result = paginated.map(p => ({
+      id: p.id,
+      title: p.title,
+      price: parseFloat(p.price),
+      image: p.image_url,
+      location: p.location,
+      condition: p.condition,
+      stock: p.stock,
+      score: p.score,
+      ai_category: p.ai_category,
+
+      seller: {
+        name: p.seller_name,
+        avatar: p.seller_avatar
+      }
+    }));
+
+    const response = {
+      success: true,
+      page,
+      count: result.length,
+      has_more: offset + limit < sorted.length,
+      category: "computers",
+      ai_mode: true,
+      products: result
+    };
+
+    // ============================
+    // ⚡ CACHE 5 MIN
+    // ============================
+    await redisClient.setEx(cacheKey, 300, JSON.stringify(response));
+
+    return res.json(response);
+
+  } catch (error) {
+    console.error("❌ AI COMPUTERS ERROR:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error"
+    });
+  }
+});
+
+
+
 
 // ----------------------------
 // GET /products — FEED PUBLIC
