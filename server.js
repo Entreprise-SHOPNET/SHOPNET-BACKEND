@@ -74,6 +74,98 @@ app.set('notifyUser', (userId, message) => {
 // Notification globale via FCM + Socket
 app.set('notifyAll', async (title, message) => {
   const db = require('./db');
+  const sendPushNotification = require('./utils/sendPushNotification');
+
+// ======================================================
+// 🔥 AUTO TREND PUSH (TOUTES LES 30 MINUTES)
+// ======================================================
+const sendTrendPush = async () => {
+  try {
+    const [products] = await db.query(`
+      SELECT 
+        p.id,
+        p.title,
+        COUNT(DISTINCT l.id) AS likes,
+        COUNT(DISTINCT v.id) AS views,
+        COUNT(DISTINCT c.user_id) AS carts
+      FROM products p
+      LEFT JOIN product_likes l ON l.product_id = p.id
+      LEFT JOIN product_views v ON v.product_id = p.id
+      LEFT JOIN carts c ON c.product_id = p.id
+      GROUP BY p.id
+      ORDER BY (
+        COUNT(DISTINCT l.id)*3 + 
+        COUNT(DISTINCT v.id) + 
+        COUNT(DISTINCT c.user_id)*2
+      ) DESC
+      LIMIT 1
+    `);
+
+    if (!products.length) {
+      console.log("⚠️ Aucun produit trend");
+      return;
+    }
+
+    const trending = products[0];
+
+    // 🖼 IMAGE
+    const [imageRows] = await db.query(
+      'SELECT image_path FROM product_images WHERE product_id = ? LIMIT 1',
+      [trending.id]
+    );
+
+    let imageUrl = null;
+
+    if (imageRows.length > 0) {
+      const CLOUDINARY_BASE = `https://res.cloudinary.com/${process.env.CLOUD_NAME}/image/upload/`;
+
+      imageUrl = imageRows[0].image_path.startsWith('http')
+        ? imageRows[0].image_path
+        : CLOUDINARY_BASE + imageRows[0].image_path;
+    }
+
+    // 👥 USERS
+    const [users] = await db.query(`
+      SELECT fcm_token FROM fcm_tokens WHERE fcm_token IS NOT NULL
+    `);
+
+    let success = 0;
+
+    for (const user of users) {
+      try {
+        await sendPushNotification(
+          user.fcm_token,
+          '🔥 Produit tendance sur SHOPNET',
+          `${trending.title} explose en popularité`,
+          {
+            productId: String(trending.id),
+            type: 'trend',
+            image: imageUrl || ''
+          }
+        );
+
+        success++;
+      } catch (err) {
+        console.log("❌ Push error");
+      }
+    }
+
+    console.log(`🔥 Trend push envoyé: ${success}/${users.length}`);
+
+  } catch (error) {
+    console.error('❌ Trend auto error:', error);
+  }
+};
+
+// ⏰ CHAQUE 30 MINUTES
+setInterval(sendTrendPush, 30 * 60 * 1000);
+
+// 🚀 AU DÉMARRAGE
+setTimeout(sendTrendPush, 10000);
+
+
+
+  
   const dateNow = new Date();
 
   try {
