@@ -9,7 +9,146 @@ const authenticateToken = require('../middlewares/authMiddleware');
 const sendPushNotification = require('../utils/sendPushNotification');
 
 
+router.get('/cron/cart-abandoned', async (req, res) => {
+  try {
+    const [rows] = await db.query(`
+      SELECT 
+        c.user_id,
+        c.product_id,
+        c.title,
+        c.images,
+        c.updated_at,
+        f.fcm_token
+      FROM carts c
+      JOIN fcm_tokens f ON f.user_id = c.user_id
+      WHERE c.updated_at BETWEEN NOW() - INTERVAL 24 HOUR AND NOW() - INTERVAL 2 HOUR
+    `);
 
+    const sent = new Set();
+
+    for (const item of rows) {
+      try {
+        if (!item.fcm_token) continue;
+
+        const key = `${item.user_id}-${item.product_id}`;
+        if (sent.has(key)) continue;
+        sent.add(key);
+
+        // 🖼 IMAGE SAFE
+        let imageUrl = '';
+
+        try {
+          const raw = item.images;
+
+          if (raw) {
+            if (typeof raw === 'string' && raw.startsWith('http')) {
+              imageUrl = raw;
+            } else {
+              const images = JSON.parse(raw);
+              if (Array.isArray(images) && images.length > 0) {
+                imageUrl = images[0];
+              }
+            }
+          }
+        } catch (e) {
+          console.log("⚠️ image parse error");
+          imageUrl = '';
+        }
+
+        // ⏱ TIME LOGIC
+        const hours = Math.floor(
+          (Date.now() - new Date(item.updated_at)) / (1000 * 60 * 60)
+        );
+
+        let title = '';
+        let message = '';
+
+        if (hours >= 2 && hours < 6) {
+          title = '🛒 Ton panier t’attend';
+          message = `Tu as laissé "${item.title || 'ce produit'}" dans ton panier.`;
+        } 
+        else if (hours >= 6 && hours < 12) {
+          title = '⏳ Toujours disponible';
+          message = `"${item.title || 'Ce produit'}" est toujours dans ton panier.`;
+        } 
+        else {
+          title = '🔥 Dernier rappel';
+          message = `"${item.title || 'Ce produit'}" risque de disparaître.`;
+        }
+
+        // 🔔 PUSH NOTIFICATION
+        await sendPushNotification(
+          item.fcm_token,
+          title,
+          message,
+          {
+            type: 'cart_abandoned',
+            productId: String(item.product_id),
+            userId: String(item.user_id),
+            image: imageUrl
+          }
+        );
+
+        console.log('✅ Push sent user:', item.user_id);
+
+      } catch (err) {
+        console.error('❌ item error:', err.message);
+      }
+    }
+
+    return res.json({
+      success: true,
+      message: 'Cart abandoned notifications sent',
+      count: rows.length
+    });
+
+  } catch (err) {
+    console.error('❌ cart-abandoned error:', err.message);
+
+    return res.status(500).json({
+      success: false,
+      error: err.message
+    });
+  }
+});
+
+
+
+
+
+// -----------------------------------------------------
+// 🛒 AJOUT AU PANIER + NOTIFICATION VENDEUR
+// -----------------------------------------------------
+router.post('/', authenticateToken, async (req, res) => {
+  const userId = Number(req.userId);
+  const body = req.body || {};
+
+  const {
+    product_id,
+    title,
+    description,
+    price,
+    original_price,
+    category,
+    condition,
+    quantity,
+    stock,
+    location,
+    delivery_options,
+    images,
+    seller_id,
+    seller_name,
+    seller_rating
+  } = body;
+
+  if (!product_id || !title || !price) {
+    return res.status(400).json({
+      success: false,
+      message: 'Champs obligatoires manquants'
+    });
+  }
+
+  try {
     // -------------------------------------------------
     // 1️⃣ AJOUT / UPDATE PANIER
     // -------------------------------------------------
@@ -20,7 +159,7 @@ const sendPushNotification = require('../utils/sendPushNotification');
 
     if (existing.length > 0) {
       await db.query(
-        'UPDATE carts SET quantity = quantity + ?, updated_at = NOW() WHERE user_id = ? AND product_id = ?',
+        'UPDATE carts SET quantity = quantity + ? WHERE user_id = ? AND product_id = ?',
         [quantity || 1, userId, product_id]
       );
     } else {
@@ -49,26 +188,10 @@ const sendPushNotification = require('../utils/sendPushNotification');
       );
     }
 
-    // -------------------------------------------------
-    // 🖼️ IMAGE FIABLE (comme LIKE)
-    // -------------------------------------------------
-    const [imageRows] = await db.query(
-      'SELECT image_path FROM product_images WHERE product_id = ? LIMIT 1',
-      [product_id]
-    );
 
-    let imageUrl = null;
-
-    if (imageRows.length > 0) {
-      const CLOUDINARY_BASE = `https://res.cloudinary.com/${process.env.CLOUD_NAME}/image/upload/`;
-
-      imageUrl = imageRows[0].image_path.startsWith("http")
-        ? imageRows[0].image_path
-        : `${CLOUDINARY_BASE}${imageRows[0].image_path}`;
-    }
 
     // -------------------------------------------------
-    // 🔔 NOTIFICATION VENDEUR (FCM + IMAGE)
+    // 🔔 2️⃣ NOTIFICATION VENDEUR (FCM)
     // -------------------------------------------------
     if (seller_id) {
       const [sellerRows] = await db.query(
@@ -80,25 +203,24 @@ const sendPushNotification = require('../utils/sendPushNotification');
         try {
           await sendPushNotification(
             sellerRows[0].fcm_token,
-            '🛒 Nouveau client intéressé',
-            `Quelqu’un s’intéresse à "${title}" 👀`,
+            '🛒 Nouveau ajout au panier',
+            `"${title}" a été ajouté au panier.`,
             {
               productId: product_id,
-              buyerId: userId,
-              image: imageUrl || ''
-            },
-            imageUrl
+              buyerId: userId
+            }
           );
 
           console.log('🔔 Notification panier envoyée au vendeur:', seller_id);
-
         } catch (err) {
-          console.error('❌ FCM cart error:', err.message);
+          console.error('FCM cart error:', err.message);
         }
       } else {
         console.warn('⚠️ Aucun token FCM vendeur:', seller_id);
       }
     }
+
+
 
     return res.json({
       success: true,
@@ -114,6 +236,7 @@ const sendPushNotification = require('../utils/sendPushNotification');
     });
   }
 });
+
 
 
 // -----------------------------------------------------
@@ -141,6 +264,7 @@ router.get('/', authenticateToken, async (req, res) => {
     });
   }
 });
+
 
 
 // -----------------------------------------------------
