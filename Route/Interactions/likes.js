@@ -7,9 +7,9 @@ const authenticate = require('../../middlewares/authMiddleware');
 const db = require('../../db');
 const sendPushNotification = require('../../utils/sendPushNotification');
 
-/**
- * POST /api/interactions/:productId/like
- */
+////**
+/// * POST /api/interactions/:productId/like
+/// */
 router.post('/:productId/like', authenticate, async (req, res) => {
   const userId = req.userId;
   const productId = parseInt(req.params.productId, 10);
