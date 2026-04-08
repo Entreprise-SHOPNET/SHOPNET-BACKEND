@@ -604,7 +604,6 @@ router.get('/maison/ai', async (req, res) => {
 
 
 
-
 // ==============================
 // GET /ai/computers — FEED IA ORDINATEURS (PRO SHOPNET)
 // ==============================
