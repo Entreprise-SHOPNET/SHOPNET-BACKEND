@@ -1750,7 +1750,5 @@ router.get('/:id/similar', authMiddleware, async (req, res) => {
   }
 });
 
-
-
 module.exports = router;
 
