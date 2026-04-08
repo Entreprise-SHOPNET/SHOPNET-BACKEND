@@ -770,6 +770,152 @@ router.get('/ai/computers', async (req, res) => {
 
 
 
+
+
+    // ============================
+    // 🧠 1. GET BEAUTY PRODUCTS ONLY
+    // ============================
+router.get('/ai/beauty', async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const offset = (page - 1) * limit;
+
+    const cacheKey = `ai:beauty:${page}`;
+    const cached = await redisClient.get(cacheKey);
+
+    if (cached) {
+      return res.json(JSON.parse(cached));
+    }
+
+    // ============================
+    // 🧠 1. GET BEAUTY PRODUCTS ONLY
+    // ============================
+    const [products] = await db.query(`
+      SELECT 
+        p.*,
+        u.fullName AS seller_name,
+        u.profile_photo AS seller_avatar,
+        (
+          SELECT pi.absolute_url
+          FROM product_images pi
+          WHERE pi.product_id = p.id
+          LIMIT 1
+        ) AS image_url
+      FROM products p
+      LEFT JOIN utilisateurs u ON p.seller_id = u.id
+      WHERE p.category = 'beauty'
+      AND p.is_active = 1
+    `);
+
+    // ============================
+    // 🧠 2. IA SCORING BEAUTY
+    // ============================
+    const scored = products.map(p => {
+      const text = `${p.title} ${p.description}`.toLowerCase();
+
+      let score = 0;
+
+      // 🔥 boost
+      if (p.is_boosted) score += 80;
+      if (p.is_featured) score += 40;
+
+      // 📊 engagement
+      score += (p.likes_count || 0) * 3;
+      score += (p.views_count || 0) * 1.5;
+      score += (p.comments_count || 0) * 2;
+      score += (p.sales || 0) * 6;
+
+      // 💄 BEAUTY TREND BONUS
+      if (
+        text.includes('crème') ||
+        text.includes('cream') ||
+        text.includes('maquillage') ||
+        text.includes('makeup') ||
+        text.includes('fond de teint') ||
+        text.includes('rouge à lèvres') ||
+        text.includes('shampooing') ||
+        text.includes('perruque') ||
+        text.includes('cheveux')
+      ) {
+        score += 50;
+      }
+
+      // 💰 prix attractif
+      if (p.price < 20) score += 30;
+      else if (p.price < 50) score += 15;
+
+      // 🧠 popularité globale
+      score += (p.popularity_score || 0) * 2;
+
+      return {
+        ...p,
+        score,
+        ai_category: 'beauty'
+      };
+    });
+
+    // ============================
+    // 🔥 3. SORT IA
+    // ============================
+    const sorted = scored.sort((a, b) => b.score - a.score);
+
+    // ============================
+    // 📄 4. PAGINATION
+    // ============================
+    const paginated = sorted.slice(offset, offset + limit);
+
+    // ============================
+    // 📦 5. FORMAT RESPONSE
+    // ============================
+    const result = paginated.map(p => ({
+      id: p.id,
+      title: p.title,
+      price: parseFloat(p.price),
+      image: p.image_url,
+      location: p.location,
+      condition: p.condition,
+      stock: p.stock,
+      score: p.score,
+      ai_category: 'beauty',
+
+      seller: {
+        name: p.seller_name,
+        avatar: p.seller_avatar
+      }
+    }));
+
+    const response = {
+      success: true,
+      page,
+      count: result.length,
+      has_more: offset + limit < sorted.length,
+      category: "beauty",
+      ai_mode: true,
+      products: result
+    };
+
+    // ============================
+    // ⚡ CACHE
+    // ============================
+    await redisClient.setEx(cacheKey, 300, JSON.stringify(response));
+
+    return res.json(response);
+
+  } catch (error) {
+    console.error("❌ AI BEAUTY ERROR:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error"
+    });
+  }
+});
+
+
+
+
+
+
 // ----------------------------
 // GET /products — FEED PUBLIC
 // ----------------------------
