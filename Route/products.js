@@ -915,6 +915,159 @@ router.get('/ai/beauty', async (req, res) => {
 
 
 
+// ==============================
+// GET /ai/auto-moto — AUTO + FILTRE IA
+// ==============================
+router.get('/ai/auto-moto', async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const offset = (page - 1) * limit;
+
+    const cacheKey = `ai:auto-moto:${page}`;
+    const cached = await redisClient.get(cacheKey);
+
+    if (cached) {
+      return res.json(JSON.parse(cached));
+    }
+
+    // ============================
+    // 🧠 1. RÉCUPÉRATION PRODUITS (AUTO + GLOBAL)
+    // ============================
+    const [products] = await db.query(`
+      SELECT 
+        p.*,
+        u.fullName AS seller_name,
+        u.profile_photo AS seller_avatar,
+
+        (
+          SELECT pi.absolute_url
+          FROM product_images pi
+          WHERE pi.product_id = p.id
+          LIMIT 1
+        ) AS image_url
+
+      FROM products p
+      LEFT JOIN utilisateurs u ON p.seller_id = u.id
+
+      WHERE p.is_active = 1
+      AND (
+        LOWER(TRIM(p.category)) = 'auto'
+        OR LOWER(p.title) LIKE '%auto%'
+        OR LOWER(p.title) LIKE '%voiture%'
+        OR LOWER(p.title) LIKE '%moto%'
+        OR LOWER(p.description) LIKE '%auto%'
+        OR LOWER(p.description) LIKE '%voiture%'
+        OR LOWER(p.description) LIKE '%moto%'
+      )
+
+      LIMIT 300
+    `);
+
+    // ============================
+    // 🧠 2. FILTRE IA (ANTI FAUX POSITIF)
+    // ============================
+    const filtered = products.filter(p => {
+      const text = `${p.title} ${p.description}`.toLowerCase();
+
+      return (
+        text.includes('voiture') ||
+        text.includes('auto') ||
+        text.includes('car') ||
+        text.includes('véhicule') ||
+        text.includes('moto') ||
+        text.includes('motor') ||
+        text.includes('bike') ||
+        text.includes('scooter') ||
+        text.includes('yamaha') ||
+        text.includes('honda') ||
+        text.includes('toyota') ||
+        text.includes('nissan') ||
+        text.includes('bmw') ||
+        text.includes('mercedes')
+      ) || p.category.toLowerCase().trim() === 'auto';
+    });
+
+    // ============================
+    // 🧠 3. SCORING IA
+    // ============================
+    const scored = filtered.map(p => {
+      let score = 0;
+
+      if (p.is_boosted) score += 80;
+      if (p.is_featured) score += 40;
+
+      score += (p.likes_count || 0) * 3;
+      score += (p.views_count || 0) * 1.5;
+      score += (p.comments_count || 0) * 2;
+      score += (p.sales || 0) * 6;
+
+      if (p.price > 500) score += 20;
+      if (p.price > 1000) score += 30;
+
+      score += (p.popularity_score || 0) * 2;
+
+      return {
+        ...p,
+        score
+      };
+    });
+
+    // ============================
+    // 🔥 TRI
+    // ============================
+    const sorted = scored.sort((a, b) => b.score - a.score);
+
+    // ============================
+    // 📄 PAGINATION
+    // ============================
+    const paginated = sorted.slice(offset, offset + limit);
+
+    // ============================
+    // 📦 FORMAT FINAL
+    // ============================
+    const result = paginated.map(p => ({
+      id: p.id,
+      title: p.title,
+      price: parseFloat(p.price),
+      image: p.image_url,
+      location: p.location,
+      condition: p.condition,
+      stock: p.stock,
+      score: p.score,
+      ai_category: "auto-moto",
+
+      seller: {
+        name: p.seller_name,
+        avatar: p.seller_avatar
+      }
+    }));
+
+    const response = {
+      success: true,
+      page,
+      count: result.length,
+      has_more: offset + limit < sorted.length,
+      category: "auto-moto",
+      ai_mode: true,
+      products: result
+    };
+
+    await redisClient.setEx(cacheKey, 300, JSON.stringify(response));
+
+    return res.json(response);
+
+  } catch (error) {
+    console.error("❌ AUTO MOTO ERROR:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error"
+    });
+  }
+});
+
+
+
 
 // ----------------------------
 // GET /products — FEED PUBLIC
