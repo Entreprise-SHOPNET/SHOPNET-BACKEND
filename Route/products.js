@@ -2123,6 +2123,169 @@ router.get('/ai/top-ventes', async (req, res) => {
 
 
 
+// ==============================
+// GET /ai/nearby — PRODUITS PRÈS DE VOUS (IA)
+// ==============================
+router.get('/ai/nearby', async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const offset = (page - 1) * limit;
+
+    const userLat = parseFloat(req.query.lat);
+    const userLon = parseFloat(req.query.lon);
+
+    if (!userLat || !userLon) {
+      return res.status(400).json({
+        success: false,
+        message: "Latitude et longitude requises"
+      });
+    }
+
+    const cacheKey = `ai:nearby:${page}:${userLat}:${userLon}`;
+    const cached = await redisClient.get(cacheKey);
+
+    if (cached) {
+      console.log("⚡ CACHE NEARBY HIT");
+      return res.json(JSON.parse(cached));
+    }
+
+    // ============================
+    // 🧠 1. PRODUITS
+    // ============================
+    const [products] = await pool.query(`
+      SELECT 
+        p.*,
+        u.fullName AS seller_name,
+        u.profile_photo AS seller_avatar,
+
+        (
+          SELECT pi.absolute_url
+          FROM product_images pi
+          WHERE pi.product_id = p.id
+          LIMIT 1
+        ) AS image_url
+
+      FROM products p
+      LEFT JOIN utilisateurs u ON p.seller_id = u.id
+      WHERE p.is_active = 1
+    `);
+
+    // ============================
+    // 🧠 2. IA + DISTANCE SCORING
+    // ============================
+    const scored = products.map(p => {
+      let score = 0;
+      let distance = null;
+
+      // 📍 DISTANCE (COEUR DU SYSTÈME)
+      if (p.latitude && p.longitude) {
+        const R = 6371;
+
+        const dLat = (p.latitude - userLat) * Math.PI / 180;
+        const dLon = (p.longitude - userLon) * Math.PI / 180;
+
+        const a =
+          Math.sin(dLat / 2) ** 2 +
+          Math.cos(userLat * Math.PI / 180) *
+          Math.cos(p.latitude * Math.PI / 180) *
+          Math.sin(dLon / 2) ** 2;
+
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        distance = R * c;
+
+        // 🎯 PRIORITÉ ULTRA PROXIMITÉ
+        if (distance < 2) score += 120;
+        else if (distance < 5) score += 100;
+        else if (distance < 10) score += 70;
+        else if (distance < 20) score += 40;
+        else score -= 20;
+      }
+
+      // ⚡ BOOST PRIORITY
+      if (p.is_boosted) score += 80;
+      if (p.is_featured) score += 40;
+
+      // 🔥 ENGAGEMENT
+      score += (p.likes_count || 0) * 3;
+      score += (p.views_count || 0) * 1.5;
+      score += (p.sales || 0) * 6;
+
+      // 💰 PRIX ATTRACTIF
+      if (p.price < 20) score += 25;
+      else if (p.price < 100) score += 10;
+
+      // 🧠 RÉCENCE (IMPORTANT)
+      const hours = (Date.now() - new Date(p.created_at)) / (1000 * 60 * 60);
+      if (hours < 6) score += 50;
+      else if (hours < 24) score += 30;
+      else if (hours < 72) score += 10;
+
+      // 📊 POPULARITÉ
+      score += (p.popularity_score || 0) * 2;
+
+      return {
+        ...p,
+        score,
+        distance_km: distance
+      };
+    });
+
+    // ============================
+    // 🔥 TRI IA FINAL
+    // ============================
+    const sorted = scored.sort((a, b) => b.score - a.score);
+
+    const paginated = sorted.slice(offset, offset + limit);
+
+    // ============================
+    // 📦 RESPONSE CLEAN
+    // ============================
+    const result = paginated.map(p => ({
+      id: p.id,
+      title: p.title,
+      price: parseFloat(p.price),
+      image: p.image_url,
+      location: p.location,
+
+      distance: p.distance_km,
+
+      score: p.score,
+
+      seller: {
+        name: p.seller_name,
+        avatar: p.seller_avatar
+      }
+    }));
+
+    const response = {
+      success: true,
+      page,
+      count: result.length,
+      has_more: offset + limit < sorted.length,
+      ai_nearby: true,
+      user_location: {
+        lat: userLat,
+        lon: userLon
+      },
+      products: result
+    };
+
+    await redisClient.setEx(cacheKey, 300, JSON.stringify(response));
+
+    return res.json(response);
+
+  } catch (error) {
+    console.error("❌ NEARBY AI ERROR:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error"
+    });
+  }
+});
+
+
+
 
 // ----------------------------
 // GET /products — FEED PUBLIC
