@@ -1966,26 +1966,38 @@ router.get('/ai/flash-deals', async (req, res) => {
 router.get('/ai/top-ventes', async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 20;
+    const limit = parseInt(req.query.limit) || 12;
     const offset = (page - 1) * limit;
 
     const userLat = parseFloat(req.query.lat) || null;
     const userLon = parseFloat(req.query.lon) || null;
 
     const cacheKey = `ai:topventes:${page}:${userLat}:${userLon}`;
-    const cached = await redisClient.get(cacheKey);
 
+    const cached = await redisClient.get(cacheKey);
     if (cached) {
-      console.log("⚡ CACHE TOP VENTES HIT");
       return res.json(JSON.parse(cached));
     }
 
     // ============================
-    // 🧠 1. PRODUITS + VENTES
+    // 🧠 QUERY SAFE (IMPORTANT FIX)
     // ============================
     const [products] = await pool.query(`
       SELECT 
-        p.*,
+        p.id,
+        p.title,
+        p.price,
+        p.location,
+        p.latitude,
+        p.longitude,
+        p.is_boosted,
+        p.is_featured,
+        p.likes_count,
+        p.views_count,
+        p.sales,
+        p.popularity_score,
+        p.created_at,
+
         u.fullName AS seller_name,
         u.profile_photo AS seller_avatar,
 
@@ -1996,32 +2008,37 @@ router.get('/ai/top-ventes', async (req, res) => {
           LIMIT 1
         ) AS image_url,
 
-        COALESCE(SUM(cp.quantite), 0) AS total_ventes
+        COALESCE(SUM(cp.quantite), 0) AS total_sales
 
       FROM products p
 
-      LEFT JOIN commande_produits cp 
-        ON cp.produit_id = p.id
-
-      LEFT JOIN commandes c 
-        ON c.id = cp.commande_id
-
-      LEFT JOIN utilisateurs u 
-        ON p.seller_id = u.id
+      LEFT JOIN commande_produits cp ON cp.produit_id = p.id
+      LEFT JOIN commandes c ON c.id = cp.commande_id
+      LEFT JOIN utilisateurs u ON u.id = p.seller_id
 
       WHERE p.is_active = 1
 
-      GROUP BY p.id
+      GROUP BY 
+        p.id, p.title, p.price, p.location,
+        p.latitude, p.longitude,
+        p.is_boosted, p.is_featured,
+        p.likes_count, p.views_count,
+        p.sales, p.popularity_score,
+        p.created_at,
+        u.fullName, u.profile_photo
+
+      ORDER BY total_sales DESC
     `);
 
     // ============================
-    // 🧠 2. SCORING IA TOP VENTES
+    // 🧠 IA SCORING
     // ============================
     const scored = products.map(p => {
       let score = 0;
+      let distance = null;
 
-      // 🔥 VENTES (FACTEUR PRINCIPAL)
-      score += (p.total_ventes || 0) * 20;
+      // 🔥 ventes (IMPORTANT)
+      score += (p.total_sales || 0) * 25;
 
       // ⚡ boost
       if (p.is_boosted) score += 80;
@@ -2032,13 +2049,7 @@ router.get('/ai/top-ventes', async (req, res) => {
       score += (p.likes_count || 0) * 3;
       score += (p.sales || 0) * 5;
 
-      // 💰 prix attractif
-      if (p.price < 20) score += 20;
-      else if (p.price < 100) score += 10;
-
-      // 📍 proximité (très important)
-      let distance = null;
-
+      // 📍 distance
       if (userLat && userLon && p.latitude && p.longitude) {
         const R = 6371;
 
@@ -2057,11 +2068,7 @@ router.get('/ai/top-ventes', async (req, res) => {
         if (distance < 5) score += 100;
         else if (distance < 20) score += 60;
         else if (distance < 50) score += 30;
-        else score -= 10;
       }
-
-      // 🧠 popularité globale
-      score += (p.popularity_score || 0) * 2;
 
       return {
         ...p,
@@ -2071,14 +2078,14 @@ router.get('/ai/top-ventes', async (req, res) => {
     });
 
     // ============================
-    // 🔥 TRI TOP VENTES
+    // 🔥 SORT FINAL
     // ============================
     const sorted = scored.sort((a, b) => b.score - a.score);
 
     const paginated = sorted.slice(offset, offset + limit);
 
     // ============================
-    // 📦 FORMAT FINAL
+    // 📦 RESPONSE
     // ============================
     const result = paginated.map(p => ({
       id: p.id,
@@ -2086,9 +2093,7 @@ router.get('/ai/top-ventes', async (req, res) => {
       price: parseFloat(p.price),
       image: p.image_url,
       location: p.location,
-
-      total_sales: p.total_ventes,
-
+      total_sales: p.total_sales,
       score: p.score,
       distance: p.distance_km,
 
@@ -2115,11 +2120,11 @@ router.get('/ai/top-ventes', async (req, res) => {
     console.error("❌ TOP VENTES ERROR:", error);
     return res.status(500).json({
       success: false,
-      message: "Server error"
+      message: "Server error",
+      error: error.message
     });
   }
 });
-
 
 
 
