@@ -1963,129 +1963,83 @@ router.get('/ai/flash-deals', async (req, res) => {
 // ==============================
 // GET /ai/top-ventes — PRODUITS LES PLUS VENDUS (IA)
 // ==============================
+// ==============================
+// GET /ai/top-ventes — PRODUITS TOP VENTES (IA SIMPLE & STABLE)
+// ==============================
 router.get('/ai/top-ventes', async (req, res) => {
   try {
     const page = parseInt(req.query.page) || 1;
-    const limit = parseInt(req.query.limit) || 12;
+    const limit = parseInt(req.query.limit) || 20;
     const offset = (page - 1) * limit;
 
-    const userLat = parseFloat(req.query.lat) || null;
-    const userLon = parseFloat(req.query.lon) || null;
-
-    const cacheKey = `ai:topventes:${page}:${userLat}:${userLon}`;
-
+    const cacheKey = `ai:topventes:${page}:${limit}`;
     const cached = await redisClient.get(cacheKey);
+
     if (cached) {
       return res.json(JSON.parse(cached));
     }
 
     // ============================
-    // 🧠 QUERY SAFE (IMPORTANT FIX)
+    // 1. RÉCUP PRODUITS
     // ============================
-    const [products] = await pool.query(`
+    const [products] = await db.query(`
       SELECT 
-        p.id,
-        p.title,
-        p.price,
-        p.location,
-        p.latitude,
-        p.longitude,
-        p.is_boosted,
-        p.is_featured,
-        p.likes_count,
-        p.views_count,
-        p.sales,
-        p.popularity_score,
-        p.created_at,
-
+        p.*,
         u.fullName AS seller_name,
         u.profile_photo AS seller_avatar,
-
         (
           SELECT pi.absolute_url
           FROM product_images pi
           WHERE pi.product_id = p.id
           LIMIT 1
-        ) AS image_url,
-
-        COALESCE(SUM(cp.quantite), 0) AS total_sales
-
+        ) AS image_url
       FROM products p
-
-      LEFT JOIN commande_produits cp ON cp.produit_id = p.id
-      LEFT JOIN commandes c ON c.id = cp.commande_id
-      LEFT JOIN utilisateurs u ON u.id = p.seller_id
-
+      LEFT JOIN utilisateurs u ON p.seller_id = u.id
       WHERE p.is_active = 1
-
-      GROUP BY 
-        p.id, p.title, p.price, p.location,
-        p.latitude, p.longitude,
-        p.is_boosted, p.is_featured,
-        p.likes_count, p.views_count,
-        p.sales, p.popularity_score,
-        p.created_at,
-        u.fullName, u.profile_photo
-
-      ORDER BY total_sales DESC
     `);
 
     // ============================
-    // 🧠 IA SCORING
+    // 2. SCORING TOP VENTES
     // ============================
     const scored = products.map(p => {
       let score = 0;
-      let distance = null;
 
-      // 🔥 ventes (IMPORTANT)
-      score += (p.total_sales || 0) * 25;
+      // 🔥 VENTES (TRÈS IMPORTANT)
+      score += (p.sales || 0) * 10;
 
-      // ⚡ boost
-      if (p.is_boosted) score += 80;
-      if (p.is_featured) score += 40;
+      // 🔥 BOOST
+      if (p.is_boosted) score += 50;
 
-      // 📊 engagement
-      score += (p.views_count || 0) * 1.5;
-      score += (p.likes_count || 0) * 3;
-      score += (p.sales || 0) * 5;
+      // ⭐ FEATURED
+      if (p.is_featured) score += 30;
 
-      // 📍 distance
-      if (userLat && userLon && p.latitude && p.longitude) {
-        const R = 6371;
+      // 📊 ENGAGEMENT
+      score += (p.likes_count || 0) * 2;
+      score += (p.views_count || 0) * 1;
+      score += (p.comments_count || 0) * 2;
+      score += (p.shares_count || 0) * 2;
 
-        const dLat = (p.latitude - userLat) * Math.PI / 180;
-        const dLon = (p.longitude - userLon) * Math.PI / 180;
-
-        const a =
-          Math.sin(dLat / 2) ** 2 +
-          Math.cos(userLat * Math.PI / 180) *
-          Math.cos(p.latitude * Math.PI / 180) *
-          Math.sin(dLon / 2) ** 2;
-
-        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-        distance = R * c;
-
-        if (distance < 5) score += 100;
-        else if (distance < 20) score += 60;
-        else if (distance < 50) score += 30;
-      }
+      // 🧠 POPULARITÉ
+      score += (p.popularity_score || 0) * 2;
 
       return {
         ...p,
-        score,
-        distance_km: distance
+        score
       };
     });
 
     // ============================
-    // 🔥 SORT FINAL
+    // 3. TRI
     // ============================
     const sorted = scored.sort((a, b) => b.score - a.score);
 
+    // ============================
+    // 4. PAGINATION
+    // ============================
     const paginated = sorted.slice(offset, offset + limit);
 
     // ============================
-    // 📦 RESPONSE
+    // 5. FORMAT RESPONSE
     // ============================
     const result = paginated.map(p => ({
       id: p.id,
@@ -2093,10 +2047,9 @@ router.get('/ai/top-ventes', async (req, res) => {
       price: parseFloat(p.price),
       image: p.image_url,
       location: p.location,
-      total_sales: p.total_sales,
+      stock: p.stock,
+      sales: p.sales,
       score: p.score,
-      distance: p.distance_km,
-
       seller: {
         name: p.seller_name,
         avatar: p.seller_avatar
@@ -2108,10 +2061,14 @@ router.get('/ai/top-ventes', async (req, res) => {
       page,
       count: result.length,
       has_more: offset + limit < sorted.length,
-      ai_top_ventes: true,
+      category: "top_ventes",
+      ai_mode: true,
       products: result
     };
 
+    // ============================
+    // 6. CACHE
+    // ============================
     await redisClient.setEx(cacheKey, 300, JSON.stringify(response));
 
     return res.json(response);
@@ -2120,12 +2077,10 @@ router.get('/ai/top-ventes', async (req, res) => {
     console.error("❌ TOP VENTES ERROR:", error);
     return res.status(500).json({
       success: false,
-      message: "Server error",
-      error: error.message
+      message: "Server error"
     });
   }
 });
-
 
 
 // ==============================
