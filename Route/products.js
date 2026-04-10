@@ -1634,6 +1634,167 @@ router.get('/ai/global', async (req, res) => {
 
 
 
+
+// ==============================
+// GET /ai/recent-local — PRODUITS RÉCENTS -24H + LOCALISATION
+// ==============================
+router.get('/ai/recent-local', async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const offset = (page - 1) * limit;
+
+    const userLat = parseFloat(req.query.lat) || null;
+    const userLon = parseFloat(req.query.lon) || null;
+
+    const cacheKey = `ai:recent-local:${page}:${userLat}:${userLon}`;
+    const cached = await redisClient.get(cacheKey);
+
+    if (cached) {
+      console.log("⚡ CACHE RECENT LOCAL HIT");
+      return res.json(JSON.parse(cached));
+    }
+
+    // ============================
+    // 🧠 1. PRODUITS -24H
+    // ============================
+    const [products] = await db.query(`
+      SELECT 
+        p.*,
+        u.fullName AS seller_name,
+        u.profile_photo AS seller_avatar,
+
+        (
+          SELECT pi.absolute_url
+          FROM product_images pi
+          WHERE pi.product_id = p.id
+          LIMIT 1
+        ) AS image_url
+
+      FROM products p
+      LEFT JOIN utilisateurs u ON p.seller_id = u.id
+
+      WHERE p.is_active = 1
+      AND p.created_at >= NOW() - INTERVAL 24 HOUR
+
+      LIMIT 300
+    `);
+
+    // ============================
+    // 🧠 2. SCORING IA LOCAL
+    // ============================
+    const scored = products.map(p => {
+      let score = 0;
+
+      // 🔥 BOOST
+      if (p.is_boosted) score += 100;
+      if (p.is_featured) score += 50;
+
+      // 📈 POPULARITÉ
+      score += (p.likes_count || 0) * 4;
+      score += (p.views_count || 0) * 2;
+      score += (p.comments_count || 0) * 3;
+      score += (p.sales || 0) * 8;
+
+      // 📍 DISTANCE (TRÈS IMPORTANT)
+      let distance = null;
+
+      if (userLat && userLon && p.latitude && p.longitude) {
+        const R = 6371;
+
+        const dLat = (p.latitude - userLat) * Math.PI / 180;
+        const dLon = (p.longitude - userLon) * Math.PI / 180;
+
+        const a =
+          Math.sin(dLat / 2) ** 2 +
+          Math.cos(userLat * Math.PI / 180) *
+          Math.cos(p.latitude * Math.PI / 180) *
+          Math.sin(dLon / 2) ** 2;
+
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        distance = R * c;
+
+        // 📍 scoring distance
+        if (distance < 5) score += 120;
+        else if (distance < 20) score += 80;
+        else if (distance < 50) score += 40;
+        else score -= 20;
+      }
+
+      // ⏱️ ULTRA RÉCENT (moins de 6h boost)
+      const now = new Date();
+      const createdAt = new Date(p.created_at);
+      const hours = (now - createdAt) / (1000 * 60 * 60);
+
+      if (hours < 1) score += 100;
+      else if (hours < 6) score += 70;
+      else if (hours < 24) score += 40;
+
+      return {
+        ...p,
+        score,
+        distance_km: distance
+      };
+    });
+
+    // ============================
+    // 🔥 TRI IA
+    // ============================
+    const sorted = scored.sort((a, b) => b.score - a.score);
+
+    // ============================
+    // 📄 PAGINATION
+    // ============================
+    const paginated = sorted.slice(offset, offset + limit);
+
+    // ============================
+    // 📦 FORMAT FINAL
+    // ============================
+    const result = paginated.map(p => ({
+      id: p.id,
+      title: p.title,
+      price: parseFloat(p.price),
+      image: p.image_url,
+      location: p.location,
+      score: p.score,
+      distance: p.distance_km,
+      created_at: p.created_at,
+
+      seller: {
+        name: p.seller_name,
+        avatar: p.seller_avatar
+      }
+    }));
+
+    const response = {
+      success: true,
+      page,
+      count: result.length,
+      has_more: offset + limit < sorted.length,
+      ai_recent_local: true,
+      products: result
+    };
+
+    // ============================
+    // ⚡ CACHE
+    // ============================
+    await redisClient.setEx(cacheKey, 120, JSON.stringify(response)); // 2 min cache
+
+    res.json(response);
+
+  } catch (error) {
+    console.error("❌ RECENT LOCAL ERROR:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error"
+    });
+  }
+});
+
+
+
+
+
 // ----------------------------
 // GET /products — FEED PUBLIC
 // ----------------------------
