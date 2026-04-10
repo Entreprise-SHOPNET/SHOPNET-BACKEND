@@ -1487,6 +1487,152 @@ router.get('/ai/services', async (req, res) => {
 
 
 
+// ==============================
+// GET /ai/global — FEED GLOBAL IA (ULTRA INTELLIGENT)
+// ==============================
+router.get('/ai/global', async (req, res) => {
+  try {
+    const userId = req.headers.authorization ? req.userId : null;
+
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const offset = (page - 1) * limit;
+
+    const cacheKey = `ai:global:${userId || 'guest'}:${page}`;
+    const cached = await redisClient.get(cacheKey);
+
+    if (cached) {
+      console.log("⚡ CACHE GLOBAL HIT");
+      return res.json(JSON.parse(cached));
+    }
+
+    // ============================
+    // 🧠 1. PRODUITS (TOUT)
+    // ============================
+    const [products] = await db.query(`
+      SELECT 
+        p.*,
+        u.fullName AS seller_name,
+        u.profile_photo AS seller_avatar,
+
+        (
+          SELECT pi.absolute_url
+          FROM product_images pi
+          WHERE pi.product_id = p.id
+          LIMIT 1
+        ) AS image_url
+
+      FROM products p
+      LEFT JOIN utilisateurs u ON p.seller_id = u.id
+      WHERE p.is_active = 1
+      LIMIT 300
+    `);
+
+    // ============================
+    // 🧠 2. SCORING IA ULTRA
+    // ============================
+    const scored = products.map(p => {
+      let score = 0;
+
+      // 🔥 BOOST = priorité maximale
+      if (p.is_boosted) score += 150;
+      if (p.boost_priority) score += 80;
+
+      // ⭐ FEATURED
+      if (p.is_featured) score += 60;
+
+      // 📊 ENGAGEMENT
+      score += (p.likes_count || 0) * 4;
+      score += (p.shares_count || 0) * 5;
+      score += (p.comments_count || 0) * 3;
+      score += (p.views_count || 0) * 1.5;
+
+      // 💰 VENTES (TRÈS IMPORTANT)
+      score += (p.sales || 0) * 10;
+
+      // 🧠 POPULARITÉ GLOBALE
+      score += (p.popularity_score || 0) * 3;
+
+      // ⏱️ RÉCENCE (ULTRA IMPORTANT)
+      const now = new Date();
+      const createdAt = new Date(p.created_at);
+      const hours = (now - createdAt) / (1000 * 60 * 60);
+
+      if (hours < 1) score += 100;
+      else if (hours < 24) score += 80;
+      else if (hours < 72) score += 50;
+      else if (hours < 168) score += 30; // 7 jours
+      else score += 5;
+
+      // 💸 PRIX INTELLIGENT
+      if (p.price) {
+        if (p.price < 20) score += 20;
+        else if (p.price < 100) score += 10;
+      }
+
+      return {
+        ...p,
+        score
+      };
+    });
+
+    // ============================
+    // 🔥 TRI GLOBAL IA
+    // ============================
+    const sorted = scored.sort((a, b) => b.score - a.score);
+
+    // ============================
+    // 📄 PAGINATION
+    // ============================
+    const paginated = sorted.slice(offset, offset + limit);
+
+    // ============================
+    // 📦 FORMAT FINAL CLEAN
+    // ============================
+    const result = paginated.map(p => ({
+      id: p.id,
+      title: p.title,
+      price: parseFloat(p.price),
+      image: p.image_url,
+      location: p.location,
+      score: p.score,
+      boost: p.is_boosted ? true : false,
+      created_at: p.created_at,
+
+      seller: {
+        name: p.seller_name,
+        avatar: p.seller_avatar
+      }
+    }));
+
+    const response = {
+      success: true,
+      page,
+      count: result.length,
+      has_more: offset + limit < sorted.length,
+      ai_global: true,
+      products: result
+    };
+
+    // ============================
+    // ⚡ CACHE
+    // ============================
+    await redisClient.setEx(cacheKey, 300, JSON.stringify(response));
+
+    res.json(response);
+
+  } catch (error) {
+    console.error("❌ GLOBAL AI ERROR:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error"
+    });
+  }
+});
+
+
+
+
 
 // ----------------------------
 // GET /products — FEED PUBLIC
