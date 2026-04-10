@@ -1284,6 +1284,209 @@ router.get('/ai/food', async (req, res) => {
 
 
 
+// ==============================
+// GET /ai/services — FEED SERVICES (IA ULTRA INTELLIGENT)
+// ==============================
+router.get('/ai/services', async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const offset = (page - 1) * limit;
+
+    const cacheKey = `ai:services:${page}`;
+    const cached = await redisClient.get(cacheKey);
+
+    if (cached) {
+      console.log("⚡ CACHE SERVICES HIT");
+      return res.json(JSON.parse(cached));
+    }
+
+    // ============================
+    // 🧠 1. RÉCUPÉRATION PRODUITS
+    // ============================
+    const [products] = await db.query(`
+      SELECT 
+        p.*,
+        u.fullName AS seller_name,
+        u.profile_photo AS seller_avatar,
+
+        (
+          SELECT pi.absolute_url
+          FROM product_images pi
+          WHERE pi.product_id = p.id
+          LIMIT 1
+        ) AS image_url
+
+      FROM products p
+      LEFT JOIN utilisateurs u ON p.seller_id = u.id
+      WHERE p.is_active = 1
+      LIMIT 300
+    `);
+
+    // ============================
+    // 🧠 2. FILTRE IA SERVICES (TRÈS PUISSANT)
+    // ============================
+    const filtered = products.filter(p => {
+      const text = `${p.title} ${p.description}`.toLowerCase();
+
+      return (
+        // 🔧 SERVICES GÉNÉRAUX
+        text.includes('service') ||
+        text.includes('prestation') ||
+        text.includes('travail') ||
+        text.includes('mission') ||
+
+        // 🛠️ TECHNIQUE
+        text.includes('réparation') ||
+        text.includes('reparation') ||
+        text.includes('maintenance') ||
+        text.includes('installation') ||
+        text.includes('electricien') ||
+        text.includes('plombier') ||
+        text.includes('mecanicien') ||
+        text.includes('garage') ||
+
+        // 💻 DIGITAL
+        text.includes('développement') ||
+        text.includes('developpement') ||
+        text.includes('site web') ||
+        text.includes('application') ||
+        text.includes('design') ||
+        text.includes('graphisme') ||
+        text.includes('marketing') ||
+        text.includes('seo') ||
+        text.includes('community manager') ||
+
+        // 🚚 LOGISTIQUE
+        text.includes('livraison') ||
+        text.includes('transport') ||
+        text.includes('chauffeur') ||
+        text.includes('demenagement') ||
+        text.includes('déménagement') ||
+
+        // 🏠 MAISON
+        text.includes('ménage') ||
+        text.includes('nettoyage') ||
+        text.includes('gardien') ||
+        text.includes('sécurité') ||
+
+        // 💇 BEAUTÉ SERVICES
+        text.includes('coiffure') ||
+        text.includes('coiffeur') ||
+        text.includes('salon') ||
+        text.includes('maquillage') ||
+        text.includes('esthétique') ||
+
+        // 📚 FORMATION
+        text.includes('formation') ||
+        text.includes('cours') ||
+        text.includes('coach') ||
+        text.includes('consultation') ||
+
+        // 🍽️ RESTAURATION (SERVICE)
+        text.includes('restaurant') ||
+        text.includes('traiteur') ||
+        text.includes('cuisine') ||
+
+        // 🧑‍💼 BUSINESS
+        text.includes('consultant') ||
+        text.includes('expert') ||
+        text.includes('freelance') ||
+        text.includes('agence')
+      );
+    });
+
+    // ============================
+    // 🧠 3. SCORING IA SERVICES
+    // ============================
+    const scored = filtered.map(p => {
+      let score = 0;
+
+      // 🔥 boost
+      if (p.is_boosted) score += 100;
+      if (p.is_featured) score += 50;
+
+      // 📊 engagement
+      score += (p.likes_count || 0) * 3;
+      score += (p.views_count || 0) * 2;
+      score += (p.comments_count || 0) * 2;
+      score += (p.sales || 0) * 5;
+
+      // 💼 BONUS SERVICE (si mot fort)
+      const text = `${p.title} ${p.description}`.toLowerCase();
+
+      if (text.includes('service')) score += 40;
+      if (text.includes('réparation') || text.includes('reparation')) score += 30;
+      if (text.includes('livraison')) score += 25;
+      if (text.includes('développement') || text.includes('developpement')) score += 35;
+
+      // 🧠 popularité
+      score += (p.popularity_score || 0) * 2;
+
+      return {
+        ...p,
+        score
+      };
+    });
+
+    // ============================
+    // 🔥 TRI
+    // ============================
+    const sorted = scored.sort((a, b) => b.score - a.score);
+
+    // ============================
+    // 📄 PAGINATION
+    // ============================
+    const paginated = sorted.slice(offset, offset + limit);
+
+    // ============================
+    // 📦 FORMAT FINAL
+    // ============================
+    const result = paginated.map(p => ({
+      id: p.id,
+      title: p.title,
+      price: parseFloat(p.price),
+      image: p.image_url,
+      location: p.location,
+      score: p.score,
+      ai_category: "services",
+
+      seller: {
+        name: p.seller_name,
+        avatar: p.seller_avatar
+      }
+    }));
+
+    const response = {
+      success: true,
+      page,
+      count: result.length,
+      has_more: offset + limit < sorted.length,
+      category: "services",
+      ai_mode: true,
+      products: result
+    };
+
+    // ============================
+    // ⚡ CACHE
+    // ============================
+    await redisClient.setEx(cacheKey, 300, JSON.stringify(response));
+
+    res.json(response);
+
+  } catch (error) {
+    console.error("❌ SERVICES AI ERROR:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error"
+    });
+  }
+});
+
+
+
+
+
 
 // ----------------------------
 // GET /products — FEED PUBLIC
