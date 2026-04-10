@@ -1069,6 +1069,222 @@ router.get('/ai/auto-moto', async (req, res) => {
 
 
 
+
+// ==============================
+// GET /ai/food — FEED ALIMENTAIRE (IA PRO)
+// ==============================
+router.get('/ai/food', async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const offset = (page - 1) * limit;
+
+    const cacheKey = `ai:food:${page}`;
+    const cached = await redisClient.get(cacheKey);
+
+    if (cached) {
+      console.log("⚡ CACHE FOOD HIT");
+      return res.json(JSON.parse(cached));
+    }
+
+    // ============================
+    // 🧠 1. RÉCUPÉRATION PRODUITS
+    // ============================
+    const [products] = await db.query(`
+      SELECT 
+        p.*,
+        u.fullName AS seller_name,
+        u.profile_photo AS seller_avatar,
+
+        (
+          SELECT pi.absolute_url
+          FROM product_images pi
+          WHERE pi.product_id = p.id
+          LIMIT 1
+        ) AS image_url
+
+      FROM products p
+      LEFT JOIN utilisateurs u ON p.seller_id = u.id
+      WHERE p.is_active = 1
+    `);
+
+    // ============================
+    // 🧠 2. FILTRE ALIMENTAIRE (ULTRA IA)
+    // ============================
+    const filtered = products.filter(p => {
+      const text = `${p.title} ${p.description}`
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, ""); // supprime accents
+
+      return (
+        // 🍽️ général
+        text.includes('manger') ||
+        text.includes('nourriture') ||
+        text.includes('aliment') ||
+        text.includes('repas') ||
+        text.includes('plat') ||
+
+        // 🍞 boulangerie
+        text.includes('pain') ||
+        text.includes('pains') ||
+        text.includes('baguette') ||
+        text.includes('croissant') ||
+
+        // 🍊 fruits
+        text.includes('orange') ||
+        text.includes('pomme') ||
+        text.includes('banane') ||
+        text.includes('mangue') ||
+        text.includes('ananas') ||
+        text.includes('citron') ||
+        text.includes('avocat') ||
+
+        // 🥦 légumes
+        text.includes('legume') ||
+        text.includes('legumes') ||
+        text.includes('carotte') ||
+        text.includes('tomate') ||
+        text.includes('oignon') ||
+        text.includes('chou') ||
+        text.includes('salade') ||
+
+        // 🌾 base
+        text.includes('farine') ||
+        text.includes('riz') ||
+        text.includes('haricot') ||
+        text.includes('mais') ||
+        text.includes('semoule') ||
+
+        // 🥩 protéines
+        text.includes('viande') ||
+        text.includes('poisson') ||
+        text.includes('poulet') ||
+        text.includes('boeuf') ||
+        text.includes('porc') ||
+
+        // 🥛 lait
+        text.includes('lait') ||
+        text.includes('fromage') ||
+        text.includes('yaourt') ||
+        text.includes('beurre') ||
+
+        // 🍰 sucré
+        text.includes('gateau') ||
+        text.includes('biscuit') ||
+        text.includes('chocolat') ||
+        text.includes('sucre') ||
+
+        // 🥤 boissons
+        text.includes('boisson') ||
+        text.includes('jus') ||
+        text.includes('eau') ||
+        text.includes('coca') ||
+        text.includes('fanta') ||
+        text.includes('sprite') ||
+        text.includes('biere') ||
+        text.includes('vin') ||
+
+        // 🍔 fast food
+        text.includes('pizza') ||
+        text.includes('burger') ||
+        text.includes('sandwich') ||
+        text.includes('shawarma') ||
+        text.includes('fast food') ||
+
+        // 🍽️ restaurant
+        text.includes('restaurant') ||
+        text.includes('menu') ||
+        text.includes('cuisine')
+      );
+    });
+
+    // ============================
+    // 🧠 3. SCORING IA
+    // ============================
+    const scored = filtered.map(p => {
+      let score = 0;
+
+      // 🔥 boost
+      if (p.is_boosted) score += 80;
+      if (p.is_featured) score += 40;
+
+      // 📊 engagement
+      score += (p.likes_count || 0) * 3;
+      score += (p.views_count || 0) * 1.5;
+      score += (p.comments_count || 0) * 2;
+      score += (p.sales || 0) * 6;
+
+      // 💰 prix
+      if (p.price < 10) score += 30;
+      else if (p.price < 50) score += 15;
+
+      // 🧠 popularité
+      score += (p.popularity_score || 0) * 2;
+
+      return {
+        ...p,
+        score
+      };
+    });
+
+    // ============================
+    // 🔥 TRI
+    // ============================
+    const sorted = scored.sort((a, b) => b.score - a.score);
+
+    // ============================
+    // 📄 PAGINATION
+    // ============================
+    const paginated = sorted.slice(offset, offset + limit);
+
+    // ============================
+    // 📦 FORMAT FINAL
+    // ============================
+    const result = paginated.map(p => ({
+      id: p.id,
+      title: p.title,
+      price: parseFloat(p.price),
+      image: p.image_url,
+      location: p.location,
+      condition: p.condition,
+      stock: p.stock,
+      score: p.score,
+      ai_category: "food",
+
+      seller: {
+        name: p.seller_name,
+        avatar: p.seller_avatar
+      }
+    }));
+
+    const response = {
+      success: true,
+      page,
+      count: result.length,
+      has_more: offset + limit < sorted.length,
+      category: "food",
+      ai_mode: true,
+      products: result
+    };
+
+    await redisClient.setEx(cacheKey, 300, JSON.stringify(response));
+
+    res.json(response);
+
+  } catch (error) {
+    console.error("❌ FOOD AI ERROR:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error"
+    });
+  }
+});
+
+
+
+
+
 // ----------------------------
 // GET /products — FEED PUBLIC
 // ----------------------------
