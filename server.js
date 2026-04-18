@@ -170,8 +170,8 @@ async function sendRandomNotifications() {
 }
 
 function scheduleNextNotification() {
-  // Délai aléatoire entre 10 et 15 minutes
-  const delay = (Math.floor(Math.random() * (15 - 10 + 1)) + 10) * 60 * 1000;
+// Délai fixe de 2 heures
+const delay = 2 * 60 * 60 * 1000;
 
   setTimeout(async () => {
     await sendRandomNotifications();
@@ -256,6 +256,7 @@ const errorHandler = require('./middlewares/errorHandler');
 // ======================================================
 const sendTrendPush = async () => {
   try {
+    // 🔥 20 produits populaires
     const [products] = await db.query(`
       SELECT 
         p.id,
@@ -273,7 +274,7 @@ const sendTrendPush = async () => {
         COUNT(DISTINCT v.id) + 
         COUNT(DISTINCT c.user_id)*2
       ) DESC
-      LIMIT 1
+      LIMIT 20
     `);
 
     if (!products.length) {
@@ -281,47 +282,55 @@ const sendTrendPush = async () => {
       return;
     }
 
-    const trending = products[0];
-
-    // 🖼 IMAGE
-    const [imageRows] = await db.query(
-      'SELECT image_path FROM product_images WHERE product_id = ? LIMIT 1',
-      [trending.id]
-    );
-
-    let imageUrl = null;
-
-    if (imageRows.length > 0) {
-      const CLOUDINARY_BASE = `https://res.cloudinary.com/${process.env.CLOUD_NAME}/image/upload/`;
-
-      imageUrl = imageRows[0].image_path.startsWith('http')
-        ? imageRows[0].image_path
-        : CLOUDINARY_BASE + imageRows[0].image_path;
-    }
-
-    // 👥 USERS
+    // 👥 utilisateurs
     const [users] = await db.query(`
-      SELECT fcm_token FROM fcm_tokens WHERE fcm_token IS NOT NULL
+      SELECT user_id, fcm_token 
+      FROM fcm_tokens 
+      WHERE fcm_token IS NOT NULL
     `);
+
+    if (!users.length) return;
 
     let success = 0;
 
-    for (const user of users) {
+    for (let i = 0; i < users.length; i++) {
+      const user = users[i];
+      const product = products[i % products.length];
+
+      if (!product) continue;
+
+      // 🖼 IMAGE
+      const [imageRows] = await db.query(
+        'SELECT image_path FROM product_images WHERE product_id = ? LIMIT 1',
+        [product.id]
+      );
+
+      let imageUrl = null;
+
+      if (imageRows.length > 0) {
+        const CLOUDINARY_BASE = `https://res.cloudinary.com/${process.env.CLOUD_NAME}/image/upload/`;
+
+        imageUrl = imageRows[0].image_path.startsWith('http')
+          ? imageRows[0].image_path
+          : CLOUDINARY_BASE + imageRows[0].image_path;
+      }
+
       try {
         await sendPushNotification(
           user.fcm_token,
-          '🔥 Produit tendance sur SHOPNET',
-          `${trending.title} explose en popularité`,
+          '🔥 Produits tendance sur SHOPNET',
+          product.title,
           {
-            productId: String(trending.id),
+            productId: String(product.id),
             type: 'trend',
             image: imageUrl || ''
           }
         );
 
         success++;
+
       } catch (err) {
-        console.log("❌ Push error");
+        console.log("❌ Push error:", err.message);
       }
     }
 
@@ -332,25 +341,7 @@ const sendTrendPush = async () => {
   }
 };
 
-// ⏰ CHAQUE 30 MINUTES
-setInterval(sendTrendPush, 30 * 60 * 1000);
-
-// 🚀 AU DÉMARRAGE
-setTimeout(sendTrendPush, 10000);
-
-
-app.use((req, res, next) => {
-  req.db = db;
-  req.upload = upload;
-  req.io = io;
-  req.notifyUser = app.get('notifyUser');
-  req.notifyAll = app.get('notifyAll');
-  next();
-});
-
 // … tes routes restent inchangées
-
-
 // Routes
 const productsRoutes = require('./Route/products');
 const authConnexionRoutes = require('./Route/Connexion');
