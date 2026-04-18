@@ -15,6 +15,7 @@ async function triggerCartAbandoned(user, product) {
     {
       userId: user.id,
       productId: product.id,
+      image: product.image || null, // 🔥 AJOUT IMPORTANT
     }
   );
 }
@@ -30,6 +31,7 @@ async function triggerNewProduct(users, product) {
       product.title,
       {
         productId: product.id,
+        image: product.image || null, // 🔥 AJOUT
       }
     );
   }
@@ -47,6 +49,7 @@ async function triggerPriceDrop(users, product) {
       {
         oldPrice: product.old_price,
         newPrice: product.new_price,
+        image: product.image || null, // 🔥 AJOUT
       }
     );
   }
@@ -62,6 +65,7 @@ async function triggerOrderConfirmed(user, product) {
     product.title,
     {
       orderId: product.order_id,
+      image: product.image || null, // 🔥 AJOUT
     }
   );
 }
