@@ -1,7 +1,6 @@
 
 
 // utils/cartAbandonedCron.js
-
 const db = require("../db");
 const { triggerCartAbandoned } = require("./notificationTriggers");
 
@@ -35,6 +34,22 @@ async function cartAbandonedCron() {
         if (sent.has(key)) continue;
         sent.add(key);
 
+        // 🔥 AJOUT IMPORTANT : IMAGE PRODUIT
+        const [imageRows] = await db.query(
+          'SELECT image_path FROM product_images WHERE product_id = ? LIMIT 1',
+          [item.product_id]
+        );
+
+        let imageUrl = null;
+
+        if (imageRows.length > 0) {
+          const CLOUDINARY_BASE = `https://res.cloudinary.com/${process.env.CLOUD_NAME}/image/upload/`;
+
+          imageUrl = imageRows[0].image_path.startsWith("http")
+            ? imageRows[0].image_path
+            : `${CLOUDINARY_BASE}${imageRows[0].image_path}`;
+        }
+
         await triggerCartAbandoned(
           {
             id: item.user_id,
@@ -43,6 +58,7 @@ async function cartAbandonedCron() {
           {
             id: item.product_id,
             title: item.title,
+            image: imageUrl   // 🔥 IMPORTANT
           }
         );
 
