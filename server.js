@@ -1,6 +1,5 @@
 
 
-
 const fs = require('fs');
 require('dotenv').config();
 const express = require('express');
@@ -628,6 +627,19 @@ process.on('SIGTERM', () => {
     process.exit(0);
   });
 });
+
+
+
+const cartAbandonedCron = require("./utils/cartAbandonedCron");
+// 🚀 Lancement CRON au démarrage
+console.log("🚀 CRON panier abandonné démarré...");
+cartAbandonedCron();
+
+// ⏰ Exécution automatique toutes les 5 heures
+setInterval(() => {
+  console.log("⏰ CRON 5h - panier abandonné...");
+  cartAbandonedCron();
+}, 5 * 60 * 60 * 1000);
 
 module.exports = server;
 
