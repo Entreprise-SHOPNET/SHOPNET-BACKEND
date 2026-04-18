@@ -1,9 +1,5 @@
 
 
-// ========================================
-// SHOPNET Admin Dashboard Backend
-// Route: /api/admin/dashboard
-// ========================================
 
 // ========================================
 // SHOPNET Admin Dashboard Backend
@@ -12,19 +8,11 @@
 
 const express = require('express');
 const router = express.Router();
-const dbGlobal = require('../../db'); // fallback sécurisé
 
 // GET /api/admin/dashboard
 router.get('/', async (req, res) => {
   try {
-    const db = req.db || dbGlobal;
-
-    if (!db) {
-      return res.status(500).json({
-        success: false,
-        message: "Database non connectée"
-      });
-    }
+    const db = req.db;
 
     // -------------------------
     // 1️⃣ Total utilisateurs
@@ -162,10 +150,12 @@ router.get('/', async (req, res) => {
         WHERE statut = 'actif'
       `);
       activeCategories = activeCategoriesResult?.[0]?.activeCategories || 0;
-    } catch {}
+    } catch {
+      activeCategories = 0; // table categories peut ne pas exister
+    }
 
     // -------------------------
-    // Produits les plus vus
+    // Produits les plus vus (top 5)
     // -------------------------
     const [mostViewedResult] = await db.query(`
       SELECT title, views_count
@@ -187,7 +177,7 @@ router.get('/', async (req, res) => {
     const categories = categoriesResult || [];
 
     // -------------------------
-    // RESPONSE
+    // 🔹 Réponse JSON complète
     // -------------------------
     res.json({
       success: true,
@@ -218,35 +208,28 @@ router.get('/', async (req, res) => {
   }
 });
 
+
+
 // -------------------------
 // Mettre à jour l'activité utilisateur
 // -------------------------
 router.post('/update-activity', async (req, res) => {
   try {
-    const db = req.db || require('../../db');
-
     const userId = req.body.userId;
-    if (!userId) {
-      return res.status(400).json({
-        success: false,
-        message: "userId requis"
-      });
-    }
+    if (!userId) return res.status(400).json({ success: false, message: "userId requis" });
 
-    await db.query(`
+    await req.db.query(`
       UPDATE utilisateurs
       SET derniere_connexion = NOW()
       WHERE id = ?
     `, [userId]);
 
     res.json({ success: true });
-
   } catch (err) {
-    res.status(500).json({
-      success: false,
-      message: err.message
-    });
+    res.status(500).json({ success: false, message: err.message });
   }
 });
+
+
 
 module.exports = router;
