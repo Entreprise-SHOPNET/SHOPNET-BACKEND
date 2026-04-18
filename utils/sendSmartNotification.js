@@ -1,52 +1,50 @@
 
 
 // utils/sendSmartNotification.js
+// utils/sendSmartNotification.js
 
-const admin = require("firebase-admin");
 const { generateNotification } = require("./notificationEngine");
+const sendPushNotification = require("./sendPushNotification");
 
 /**
- * Envoie une notification intelligente via FCM
- * @param {string} token - FCM token utilisateur
- * @param {string} type - type notification (cart_abandoned, trend, etc.)
- * @param {string} product - nom du produit
- * @param {object} extraData - données supplémentaires (optionnel)
+ * 📢 Envoi notification intelligente SHOPNET
  */
-async function sendSmartNotification(token, type, product, extraData = {}) {
+async function sendSmartNotification(token, type, product, extra = {}) {
   try {
     if (!token) {
-      console.log("❌ Token FCM manquant");
-      return;
+      console.log("⚠️ Token FCM manquant");
+      return null;
     }
 
-    // 1. Générer message intelligent
-    const notification = generateNotification(type, product);
+    // 🔥 Génération notification (avec image)
+    const notif = generateNotification(
+      type,
+      product,
+      extra.image || null
+    );
 
-    // 2. Construire message FCM
-    const message = {
-      token: token,
-      notification: {
-        title: notification.title,
-        body: notification.message,
-      },
-      data: {
-        type: type,
-        product: product,
-        ...Object.keys(extraData).reduce((acc, key) => {
-          acc[key] = String(extraData[key]);
-          return acc;
-        }, {}),
-      },
-    };
+    console.log("📡 Envoi Smart Notif :", {
+      type,
+      product,
+      image: notif.image,
+    });
 
-    // 3. Envoi Firebase
-    const response = await admin.messaging().send(message);
+    // 🔔 Envoi vers Firebase
+    return await sendPushNotification(
+      token,
+      notif.title,
+      notif.message,
+      {
+        ...extra,
+        image: notif.image || null, // 🔥 IMPORTANT
+        product,
+        type,
+      }
+    );
 
-    console.log("✅ Notification envoyée :", response);
-
-    return response;
   } catch (error) {
-    console.error("❌ Erreur envoi notification :", error.message);
+    console.error("❌ sendSmartNotification error:", error.message);
+    return null;
   }
 }
 
