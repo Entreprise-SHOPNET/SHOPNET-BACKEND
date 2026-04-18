@@ -248,6 +248,10 @@ app.use('/uploads', express.static(UPLOADS_DIR, {
 }));
 
 const db = require('./db');
+app.use((req, res, next) => {
+  req.db = db;
+  next();
+});
 const errorHandler = require('./middlewares/errorHandler');
  const sendPushNotification = require('./utils/sendPushNotification');
 
