@@ -12,7 +12,7 @@ const router = express.Router();
 // GET /api/admin/dashboard
 router.get('/', async (req, res) => {
   try {
-    const db = req.db;
+    const db = require('../../db'); 
 
     // -------------------------
     // 1️⃣ Total utilisateurs
