@@ -170,19 +170,33 @@ async function sendRandomNotifications() {
 }
 
 function scheduleNextNotification() {
-// Délai fixe de 2 heures
-const delay = 2 * 60 * 60 * 1000;
+  const delay = 2 * 60 * 60 * 1000;
 
-  setTimeout(async () => {
-    await sendRandomNotifications();
-    scheduleNextNotification(); // reprogramme la prochaine notification
+  console.log("⏰ Notifications automatiques ACTIVÉES");
+
+  setInterval(async () => {
+    try {
+      await sendRandomNotifications();
+    } catch (err) {
+      console.log("❌ AUTO NOTIF ERROR:", err.message);
+    }
   }, delay);
 }
-
 setTimeout(() => {
-  scheduleNextNotification();
   console.log('🔔 Notifications automatiques activées');
+  scheduleNextNotification();
 }, 5000);
+
+
+
+
+
+
+
+
+
+
+
 
 // 🔹 Middlewares, sécurité, uploads (inchangés)
 app.use(helmet());
