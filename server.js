@@ -311,6 +311,23 @@ const sendTrendPush = async () => {
     let success = 0;
     let failed = 0;
 
+    // 🎯 Titres dynamiques
+    const titles = [
+      "🔥 Ça explose sur SHOPNET !",
+      "🚀 Tout le monde regarde ça",
+      "💥 Produit en forte demande",
+      "🛒 Ne rate pas cette offre",
+      "🔥 Tendance actuelle"
+    ];
+
+    const bodies = [
+      (title) => `${title} attire beaucoup d’acheteurs 👀`,
+      (title) => `${title} est très demandé en ce moment 🔥`,
+      (title) => `Les utilisateurs consultent ${title} en ce moment`,
+      (title) => `${title} fait partie des plus populaires`,
+      (title) => `Découvre pourquoi ${title} est tendance 👀`
+    ];
+
     // 🔁 3. Envoi notifications
     for (let i = 0; i < users.length; i++) {
       const user = users[i];
@@ -335,11 +352,16 @@ const sendTrendPush = async () => {
             : CLOUDINARY_BASE + imageRows[0].image_path;
         }
 
+        // 🎲 message random
+        const randomTitle = titles[Math.floor(Math.random() * titles.length)];
+        const randomBodyFunc = bodies[Math.floor(Math.random() * bodies.length)];
+        const randomBody = randomBodyFunc(product.title);
+
         // 🔥 ENVOI PUSH
         await sendPushNotification(
           user.fcm_token,
-          '🔥 Produits tendance sur SHOPNET',
-          product.title,
+          randomTitle,
+          randomBody,
           {
             productId: String(product.id),
             type: 'trend',
@@ -368,7 +390,6 @@ const sendTrendPush = async () => {
 // 🚀 LANCEMENT AUTOMATIQUE
 // ==========================================
 
-// Wrapper sécurisé
 const startTrendPush = async () => {
   try {
     console.log("🚀 Lancement TREND PUSH...");
@@ -378,16 +399,15 @@ const startTrendPush = async () => {
   }
 };
 
-// 🔹 1. Lancer au démarrage (après 5 secondes)
+// 🔹 1. Au démarrage
 setTimeout(() => {
   startTrendPush();
 }, 5000);
 
-// 🔹 2. Lancer toutes les 30 minutes
+// 🔹 2. Toutes les 1 heure
 setInterval(() => {
   startTrendPush();
-}, 30 * 60 * 1000);
-
+}, 60 * 60 * 1000);
 
 
 
