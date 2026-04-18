@@ -258,9 +258,15 @@ const errorHandler = require('./middlewares/errorHandler');
 // ======================================================
 // 🔥 AUTO TREND PUSH (TOUTES LES 30 MINUTES)
 // ======================================================
+// ======================================================
+// 🔥 AUTO TREND PUSH (PROPRE + STABLE)
+// ======================================================
+
 const sendTrendPush = async () => {
   try {
-    // 🔥 20 produits populaires
+    console.log("⏱ [TREND] Début récupération données...");
+
+    // 🔥 1. Produits populaires
     const [products] = await db.query(`
       SELECT 
         p.id,
@@ -281,45 +287,55 @@ const sendTrendPush = async () => {
       LIMIT 20
     `);
 
-    if (!products.length) {
-      console.log("⚠️ Aucun produit trend");
+    if (!products || products.length === 0) {
+      console.log("⚠️ Aucun produit trend trouvé");
       return;
     }
 
-    // 👥 utilisateurs
+    console.log(`📦 Produits trouvés: ${products.length}`);
+
+    // 👥 2. Utilisateurs avec token
     const [users] = await db.query(`
       SELECT user_id, fcm_token 
       FROM fcm_tokens 
       WHERE fcm_token IS NOT NULL
     `);
 
-    if (!users.length) return;
+    if (!users || users.length === 0) {
+      console.log("⚠️ Aucun utilisateur avec FCM token");
+      return;
+    }
+
+    console.log(`👥 Utilisateurs trouvés: ${users.length}`);
 
     let success = 0;
+    let failed = 0;
 
+    // 🔁 3. Envoi notifications
     for (let i = 0; i < users.length; i++) {
       const user = users[i];
       const product = products[i % products.length];
 
       if (!product) continue;
 
-      // 🖼 IMAGE
-      const [imageRows] = await db.query(
-        'SELECT image_path FROM product_images WHERE product_id = ? LIMIT 1',
-        [product.id]
-      );
-
-      let imageUrl = null;
-
-      if (imageRows.length > 0) {
-        const CLOUDINARY_BASE = `https://res.cloudinary.com/${process.env.CLOUD_NAME}/image/upload/`;
-
-        imageUrl = imageRows[0].image_path.startsWith('http')
-          ? imageRows[0].image_path
-          : CLOUDINARY_BASE + imageRows[0].image_path;
-      }
-
       try {
+        // 🖼 IMAGE
+        const [imageRows] = await db.query(
+          'SELECT image_path FROM product_images WHERE product_id = ? LIMIT 1',
+          [product.id]
+        );
+
+        let imageUrl = '';
+
+        if (imageRows.length > 0) {
+          const CLOUDINARY_BASE = `https://res.cloudinary.com/${process.env.CLOUD_NAME}/image/upload/`;
+
+          imageUrl = imageRows[0].image_path.startsWith('http')
+            ? imageRows[0].image_path
+            : CLOUDINARY_BASE + imageRows[0].image_path;
+        }
+
+        // 🔥 ENVOI PUSH
         await sendPushNotification(
           user.fcm_token,
           '🔥 Produits tendance sur SHOPNET',
@@ -327,23 +343,53 @@ const sendTrendPush = async () => {
           {
             productId: String(product.id),
             type: 'trend',
-            image: imageUrl || ''
+            image: imageUrl
           }
         );
 
         success++;
 
       } catch (err) {
-        console.log("❌ Push error:", err.message);
+        failed++;
+        console.log(`❌ Push error user ${user.user_id}:`, err.message);
       }
     }
 
-    console.log(`🔥 Trend push envoyé: ${success}/${users.length}`);
+    console.log(`✅ TREND terminé: ${success} succès / ${failed} échecs`);
 
   } catch (error) {
-    console.error('❌ Trend auto error:', error);
+    console.error('❌ TREND GLOBAL ERROR:', error.message);
   }
 };
+
+
+
+// ==========================================
+// 🚀 LANCEMENT AUTOMATIQUE
+// ==========================================
+
+// Wrapper sécurisé
+const startTrendPush = async () => {
+  try {
+    console.log("🚀 Lancement TREND PUSH...");
+    await sendTrendPush();
+  } catch (err) {
+    console.error("❌ START TREND ERROR:", err.message);
+  }
+};
+
+// 🔹 1. Lancer au démarrage (après 5 secondes)
+setTimeout(() => {
+  startTrendPush();
+}, 5000);
+
+// 🔹 2. Lancer toutes les 30 minutes
+setInterval(() => {
+  startTrendPush();
+}, 30 * 60 * 1000);
+
+
+
 
 // … tes routes restent inchangées
 // Routes
