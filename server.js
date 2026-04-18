@@ -189,7 +189,105 @@ setTimeout(() => {
 
 
 
+// ======================================================
+// 🛒 CART ABANDONED AUTO NOTIFICATION (CRON)
+// ======================================================
 
+function startCartAbandonedCron() {
+  console.log("⏰ Cart Abandoned CRON activé (1h)");
+
+  setInterval(async () => {
+    try {
+      const [rows] = await db.query(`
+        SELECT 
+          c.user_id,
+          c.product_id,
+          c.updated_at,
+          f.fcm_token
+        FROM carts c
+        JOIN fcm_tokens f ON f.user_id = c.user_id
+        WHERE c.updated_at BETWEEN NOW() - INTERVAL 24 HOUR AND NOW() - INTERVAL 2 HOUR
+      `);
+
+      const sent = new Set();
+
+      for (const item of rows) {
+        try {
+          if (!item.fcm_token) continue;
+
+          const key = `${item.user_id}-${item.product_id}`;
+          if (sent.has(key)) continue;
+          sent.add(key);
+
+          const [productRows] = await db.query(
+            'SELECT title FROM products WHERE id = ?',
+            [item.product_id]
+          );
+
+          const title = productRows[0]?.title || 'ce produit';
+
+          const [imageRows] = await db.query(
+            'SELECT image_path FROM product_images WHERE product_id = ? LIMIT 1',
+            [item.product_id]
+          );
+
+          let imageUrl = '';
+
+          if (imageRows.length > 0) {
+            const CLOUDINARY_BASE = `https://res.cloudinary.com/${process.env.CLOUD_NAME}/image/upload/`;
+
+            imageUrl = imageRows[0].image_path.startsWith("http")
+              ? imageRows[0].image_path
+              : `${CLOUDINARY_BASE}${imageRows[0].image_path}`;
+          }
+
+          const hours = Math.floor(
+            (Date.now() - new Date(item.updated_at)) / (1000 * 60 * 60)
+          );
+
+          let notifTitle = '';
+          let message = '';
+
+          if (hours >= 2 && hours < 6) {
+            notifTitle = '🛒 Ton panier t’attend';
+            message = `Tu as laissé "${title}" dans ton panier 🔥`;
+          } else if (hours >= 6 && hours < 12) {
+            notifTitle = '⏳ Toujours disponible';
+            message = `"${title}" est encore dans ton panier 💡`;
+          } else {
+            notifTitle = '🔥 Dernier rappel';
+            message = `"${title}" risque de disparaître 🛒`;
+          }
+
+          await sendPushNotification(
+            item.fcm_token,
+            notifTitle,
+            message,
+            {
+              type: 'cart_abandoned',
+              productId: item.product_id,
+              image: imageUrl
+            }
+          );
+
+        } catch (err) {
+          console.log("❌ item error:", err.message);
+        }
+      }
+
+      console.log(`🛒 Cart CRON exécuté: ${rows.length} items`);
+
+    } catch (err) {
+      console.log("❌ Cart cron error:", err.message);
+    }
+
+  }, 60 * 60 * 1000);
+}
+
+// 🚀 LANCEMENT UNIQUE AU DÉMARRAGE
+setTimeout(() => {
+  startCartAbandonedCron();
+}, 5000);
 
 
 
