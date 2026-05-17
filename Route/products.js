@@ -2434,7 +2434,7 @@ router.post('/', authMiddleware, (req, res) => {
                 quality: "auto"
               },
               {
-                overlay: "text:Arial_40:SHOPNET%20%E2%80%A2%20Verified",
+                overlay: "text:Arial_60:SHOPNET%20%E2%80%A2%20Verified",
                 gravity: "center",
                 opacity: 40,
                 color: "white"
