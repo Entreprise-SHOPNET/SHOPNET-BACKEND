@@ -2,6 +2,7 @@
 
 
 // Route/uploadCloudinary.js
+// Route/uploadCloudinary.js
 const express = require('express');
 const router = express.Router();
 const multer = require('multer');
@@ -18,11 +19,29 @@ router.post('/', upload.single('image'), async (req, res) => {
       return res.status(400).json({ success: false, message: 'Aucune image envoyée' });
     }
 
-    // 📤 Upload sur Cloudinary
+    // 📤 Upload sur Cloudinary AVEC WATERMARK
     const result = await cloudinary.uploader.upload(req.file.path, {
-      folder: 'shopnet', // 📂 Dossier sur Cloudinary
+      folder: 'shopnet',
       use_filename: true,
-      unique_filename: false
+      unique_filename: false,
+
+      // 💧 WATERMARK CENTRÉ
+      transformation: [
+        {
+          width: 800,
+          crop: "limit"
+        },
+        {
+          overlay: {
+            font_family: "Arial",
+            font_size: 50,
+            text: "SHOPNET • Verified"
+          },
+          gravity: "center",
+          opacity: 40,
+          color: "#FFFFFF"
+        }
+      ]
     });
 
     // ❌ Supprimer le fichier temporaire après upload
@@ -36,7 +55,11 @@ router.post('/', upload.single('image'), async (req, res) => {
 
   } catch (error) {
     console.error(error);
-    res.status(500).json({ success: false, message: 'Erreur lors de l\'upload', error: error.message });
+    res.status(500).json({
+      success: false,
+      message: "Erreur lors de l'upload",
+      error: error.message
+    });
   }
 });
 
