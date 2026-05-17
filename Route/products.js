@@ -2354,6 +2354,9 @@ router.get('/', async (req, res) => {
 // ----------------------------
 // POST /products — Création produit avec Cloudinary et boost auto pour Premium
 // ----------------------------
+// ----------------------------
+// POST /products — Création produit avec Cloudinary et boost auto pour Premium
+// ----------------------------
 router.post('/', authMiddleware, (req, res) => {
   upload(req, res, async (err) => {
     let connection;
@@ -2400,25 +2403,43 @@ router.post('/', authMiddleware, (req, res) => {
         comments_count: 0,
         shares_count: 0,
         views_count: 0,
-        is_boosted: 0 // par défaut
+        is_boosted: 0
       };
 
       const [productResult] = await connection.query(
         'INSERT INTO products SET ?',
         [productData]
       );
+
       const productId = productResult.insertId;
 
       // ------------------
-      // Upload images Cloudinary
+      // Upload images Cloudinary AVEC WATERMARK
       // ------------------
       let uploadedImages = [];
+
       if (req.files?.length > 0) {
         for (const file of req.files) {
+
           const uploadResult = await uploadToCloudinary(file.buffer, {
             folder: 'shopnet',
             resource_type: 'image',
-            public_id: `product_${Date.now()}_${Math.floor(Math.random() * 10000)}`
+            public_id: `product_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
+
+            // 💧 WATERMARK SHOPNET
+            transformation: [
+              {
+                width: 1200,
+                crop: "limit",
+                quality: "auto"
+              },
+              {
+                overlay: "text:Arial_40:SHOPNET%20%E2%80%A2%20Verified",
+                gravity: "center",
+                opacity: 40,
+                color: "white"
+              }
+            ]
           });
 
           await connection.query(
@@ -2442,10 +2463,9 @@ router.post('/', authMiddleware, (req, res) => {
       );
 
       if (premiumRows.length > 0) {
-        // Auto-boost produit Premium
         const boostId = `BOOST_${Date.now()}_${Math.floor(Math.random()*10000)}`;
         const now = new Date();
-        const endDate = new Date(now.getTime() + 24*60*60*1000); // boost 24h
+        const endDate = new Date(now.getTime() + 24*60*60*1000);
 
         await connection.query(
           `INSERT INTO product_boosts
@@ -2475,12 +2495,10 @@ router.post('/', authMiddleware, (req, res) => {
         await connection.rollback();
         connection.release();
       }
-      console.error('Erreur création produit:', error.message);
       res.status(400).json({ success: false, error: error.message });
     }
   });
 });
-
 
 // ===============================================
 // ✅ DISCOVER - PAGE BOUTIQUE PUBLIQUE PAGINÉE  CETTE PAGE CE POUR LES DONNER DE BOUTIQUE COTER ACHETEUR
