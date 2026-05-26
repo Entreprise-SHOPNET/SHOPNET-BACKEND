@@ -1959,10 +1959,163 @@ router.get('/ai/flash-deals', async (req, res) => {
 
 
 
+// ==============================
+// GET /ai/promotions-feed — FEED PROMOTIONS GLOBAL IA
+// ==============================
+router.get('/ai/promotions-feed', async (req, res) => {
+  try {
+    const userId = req.headers.authorization ? req.userId : null;
 
-// ==============================
-// GET /ai/top-ventes — PRODUITS LES PLUS VENDUS (IA)
-// ==============================
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const offset = (page - 1) * limit;
+
+    const cacheKey = `ai:promotions:${userId || 'guest'}:${page}`;
+    const cached = await redisClient.get(cacheKey);
+
+    if (cached) {
+      return res.json(JSON.parse(cached));
+    }
+
+    // ============================
+    // 1️⃣ PRODUITS EN PROMOTION UNIQUEMENT
+    // ============================
+    const [products] = await db.query(`
+      SELECT 
+        p.*,
+        pr.promo_price,
+        pr.created_at AS promo_created_at,
+        pr.duration_days,
+
+        u.fullName AS seller_name,
+        u.profile_photo AS seller_avatar,
+
+        (
+          SELECT pi.absolute_url
+          FROM product_images pi
+          WHERE pi.product_id = p.id
+          LIMIT 1
+        ) AS image_url
+
+      FROM promotions pr
+      INNER JOIN products p ON p.id = pr.product_id
+      LEFT JOIN utilisateurs u ON p.seller_id = u.id
+
+      WHERE p.is_active = 1
+      AND DATE_ADD(pr.created_at, INTERVAL pr.duration_days DAY) >= NOW()
+
+      LIMIT 300
+    `);
+
+    // ============================
+    // 2️⃣ SCORING INTELLIGENT (IA STYLE TIKTOK)
+    // ============================
+    const scored = products.map(p => {
+      let score = 0;
+
+      const now = new Date();
+
+      // 🔥 PROMO PRIORITY (très important)
+      if (p.promo_price) {
+        const discount = ((p.price - p.promo_price) / p.price) * 100;
+        score += discount * 3;
+      }
+
+      // 🚀 BOOST
+      if (p.is_boosted) score += 120;
+      if (p.is_featured) score += 60;
+
+      // 📊 ENGAGEMENT
+      score += (p.likes_count || 0) * 4;
+      score += (p.views_count || 0) * 1.5;
+      score += (p.comments_count || 0) * 3;
+      score += (p.sales || 0) * 10;
+
+      // ⏱️ RÉCENCE PROMO (TRÈS IMPORTANT)
+      const promoAgeHours = (now - new Date(p.promo_created_at)) / (1000 * 60 * 60);
+
+      if (promoAgeHours < 2) score += 120;
+      else if (promoAgeHours < 6) score += 90;
+      else if (promoAgeHours < 24) score += 60;
+      else if (promoAgeHours < 72) score += 30;
+      else score += 10;
+
+      // 💰 PRIX INTELLIGENT
+      if (p.promo_price < 20) score += 40;
+      else if (p.promo_price < 100) score += 20;
+
+      // 🧠 POPULARITÉ
+      score += (p.popularity_score || 0) * 2;
+
+      return {
+        ...p,
+        score
+      };
+    });
+
+    // ============================
+    // 3️⃣ TRI IA
+    // ============================
+    const sorted = scored.sort((a, b) => b.score - a.score);
+
+    // ============================
+    // 4️⃣ PAGINATION
+    // ============================
+    const paginated = sorted.slice(offset, offset + limit);
+
+    // ============================
+    // 5️⃣ FORMAT FINAL CLEAN (FRONTEND READY)
+    // ============================
+    const result = paginated.map(p => ({
+      id: p.id,
+      title: p.title,
+
+      price: parseFloat(p.price),
+      promo_price: parseFloat(p.promo_price),
+
+      discount: p.promo_price
+        ? Math.round(((p.price - p.promo_price) / p.price) * 100)
+        : 0,
+
+      image: p.image_url,
+      location: p.location,
+
+      score: p.score,
+
+      is_promo: true,
+
+      seller: {
+        name: p.seller_name,
+        avatar: p.seller_avatar
+      }
+    }));
+
+    const response = {
+      success: true,
+      page,
+      count: result.length,
+      has_more: offset + limit < sorted.length,
+      ai_promotions: true,
+      products: result
+    };
+
+    // ============================
+    // ⚡ CACHE
+    // ============================
+    await redisClient.setEx(cacheKey, 180, JSON.stringify(response));
+
+    res.json(response);
+
+  } catch (error) {
+    console.error("❌ PROMO FEED ERROR:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error"
+    });
+  }
+});
+
+
 // ==============================
 // GET /ai/top-ventes — PRODUITS TOP VENTES (IA SIMPLE & STABLE)
 // ==============================
