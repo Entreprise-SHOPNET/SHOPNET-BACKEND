@@ -1052,15 +1052,8 @@ router.post('/:id/paiement', authenticateUser, upload.single('preuve'), async (r
 
 
 
-
-
-
-
 // ======================
-// ✅ DISCOVER - BOUTIQUES PROCHES (Haversine)
-// ======================
-// ======================
-// ✅ DISCOVER - BOUTIQUES PROCHES (Haversine)
+// ✅ DISCOVER - BOUTIQUES (AVEC OU SANS GPS)
 // ======================
 router.get('/discover/nearby', async (req, res) => {
   try {
@@ -1069,23 +1062,68 @@ router.get('/discover/nearby', async (req, res) => {
     const {
       latitude,
       longitude,
-      radius = 20,
+      radius = 500,
       page = 1,
       limit = 20
     } = req.query;
 
-    if (!latitude || !longitude) {
-      return res.status(400).json({
-        success: false,
-        message: 'Latitude et longitude sont requises'
+    const offset = (parseInt(page) - 1) * parseInt(limit);
+
+    // 🟡 CAS 1 : utilisateur a GPS → on calcule distance
+    if (latitude && longitude) {
+      const lat = parseFloat(latitude);
+      const lng = parseFloat(longitude);
+      const rayon = parseFloat(radius);
+
+      const [shops] = await db.query(
+        `
+        SELECT 
+          bp.id,
+          bp.nom,
+          bp.logo,
+          bp.description,
+          bp.ville,
+          bp.pays,
+          bp.latitude,
+          bp.longitude,
+          bp.type_boutique,
+          bp.date_activation,
+          (
+            6371 * ACOS(
+              COS(RADIANS(?)) *
+              COS(RADIANS(bp.latitude)) *
+              COS(RADIANS(bp.longitude) - RADIANS(?)) +
+              SIN(RADIANS(?)) *
+              SIN(RADIANS(bp.latitude))
+            )
+          ) AS distance
+        FROM boutiques_premium bp
+        WHERE bp.statut = 'validé'
+        HAVING distance <= ?
+        ORDER BY distance ASC
+        LIMIT ? OFFSET ?
+        `,
+        [
+          lat,
+          lng,
+          lat,
+          rayon,
+          parseInt(limit),
+          offset
+        ]
+      );
+
+      return res.json({
+        success: true,
+        mode: 'gps',
+        count: shops.length,
+        page: parseInt(page),
+        radius_km: rayon,
+        shops
       });
     }
 
-    const lat = parseFloat(latitude);
-    const lng = parseFloat(longitude);
-    const rayon = parseFloat(radius);
-    const offset = (parseInt(page) - 1) * parseInt(limit);
-
+    // 🟢 CAS 2 : PAS DE GPS → on affiche TOUTES les boutiques
     const [shops] = await db.query(
       `
       SELECT 
@@ -1098,45 +1136,30 @@ router.get('/discover/nearby', async (req, res) => {
         bp.latitude,
         bp.longitude,
         bp.type_boutique,
-        bp.date_activation,
-        (
-          6371 * ACOS(
-            COS(RADIANS(?)) *
-            COS(RADIANS(bp.latitude)) *
-            COS(RADIANS(bp.longitude) - RADIANS(?)) +
-            SIN(RADIANS(?)) *
-            SIN(RADIANS(bp.latitude))
-          )
-        ) AS distance
+        bp.date_activation
       FROM boutiques_premium bp
       WHERE bp.statut = 'validé'
-      AND bp.latitude IS NOT NULL
-      AND bp.longitude IS NOT NULL
-      HAVING distance <= ?
-      ORDER BY distance ASC
+      ORDER BY bp.id DESC
       LIMIT ? OFFSET ?
       `,
       [
-        lat,
-        lng,
-        lat,
-        rayon,
         parseInt(limit),
         offset
       ]
     );
 
-    res.json({
+    return res.json({
       success: true,
+      mode: 'no_gps',
       count: shops.length,
       page: parseInt(page),
-      radius_km: rayon,
+      radius_km: null,
       shops
     });
 
   } catch (error) {
     console.error('❌ Erreur GET /discover/nearby:', error);
-    res.status(500).json({
+    return res.status(500).json({
       success: false,
       message: 'Erreur serveur'
     });
@@ -1145,10 +1168,10 @@ router.get('/discover/nearby', async (req, res) => {
 
 
 
+
 // ======================
 // 6. ROUTES ADMIN (SANS MIDDLEWARE - À PROTÉGER EN PRODUCTION)
 // ======================
-
 // ✅ LISTER BOUTIQUES EN ATTENTE
 router.get('/admin/en-attente', async (req, res) => {
   try {
