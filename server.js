@@ -377,7 +377,7 @@ const sendTrendPush = async () => {
   try {
     console.log("⏱ [TREND] Début récupération données...");
 
-    // 🔥 1. Produits populaires
+    // 🔥 1. PRODUITS TREND
     const [products] = await db.query(`
       SELECT 
         p.id,
@@ -399,77 +399,114 @@ const sendTrendPush = async () => {
       LIMIT 20
     `);
 
-    if (!products || products.length === 0) {
-      console.log("⚠️ Aucun produit trend trouvé");
-      return;
-    }
+    if (!products || products.length === 0) return;
 
-    console.log(`📦 Produits trouvés: ${products.length}`);
+    // 🆕 2. PRODUITS NOUVEAUX
+    const [newProducts] = await db.query(`
+      SELECT p.id, p.title, p.price
+      FROM products p
+      ORDER BY p.id DESC
+      LIMIT 20
+    `);
 
-    // 👥 2. Utilisateurs avec token
     const [users] = await db.query(`
       SELECT user_id, fcm_token 
       FROM fcm_tokens 
       WHERE fcm_token IS NOT NULL
     `);
 
-    if (!users || users.length === 0) {
-      console.log("⚠️ Aucun utilisateur avec FCM token");
-      return;
-    }
-
-    console.log(`👥 Utilisateurs trouvés: ${users.length}`);
+    if (!users || users.length === 0) return;
 
     let success = 0;
     let failed = 0;
 
-    // 🎯 Titres dynamiques
-    const titles = [
-      "🔥 Produit tendance sur SHOPNET",
-      "🚀 Une opportunité à ne pas manquer",
-      "👀 Les acheteurs s'y intéressent",
-      "🛒 Ce produit attire l'attention",
-      "💥 Forte demande actuellement",
-      "⭐ Découverte recommandée",
-      "📈 Produit populaire aujourd'hui",
-      "🔥 Plusieurs utilisateurs le consultent"
+    // 🔥 TITRES TREND (10)
+    const trendTitles = [
+      "🔥 Produit très populaire",
+      "🚀 Forte demande en cours",
+      "👀 Produit très consulté",
+      "🛒 Tendance du moment",
+      "💥 Très recherché",
+      "⭐ Recommandé SHOPNET",
+      "📈 En forte croissance",
+      "🔥 Produit viral",
+      "💎 Top vente du jour",
+      "🚀 Forte activité détectée"
     ];
 
-    const bodies = [
-      (product) =>
-        `Le produit "${product.title}" attire actuellement de nombreux acheteurs sur SHOPNET. Consultez-le maintenant avant qu'il ne perde sa disponibilité. Prix : ${product.price} USD.`,
-
-      (product) =>
-        `De plus en plus d'utilisateurs consultent "${product.title}" aujourd'hui. Découvrez pourquoi ce produit suscite autant d'intérêt. Disponible à ${product.price} USD.`,
-
-      (product) =>
-        `"${product.title}" fait partie des produits les plus consultés du moment. Cliquez maintenant pour voir les détails et profiter de cette opportunité. Prix : ${product.price} USD.`,
-
-      (product) =>
-        `Ce produit attire fortement l'attention de la communauté SHOPNET. Découvrez "${product.title}" et vérifiez s'il correspond à vos besoins. Prix actuel : ${product.price} USD.`,
-
-      (product) =>
-        `Des acheteurs consultent actuellement "${product.title}". Ne manquez pas cette occasion de découvrir un produit populaire sur SHOPNET. Prix : ${product.price} USD.`,
-
-      (product) =>
-        `Une forte activité est enregistrée autour de "${product.title}". Ouvrez l'application maintenant pour voir pourquoi ce produit est tendance. Prix : ${product.price} USD.`,
-
-      (product) =>
-        `🔥 Produit recommandé : "${product.title}". Plusieurs utilisateurs manifestent de l'intérêt pour cet article. Consultez-le maintenant sur SHOPNET. Prix : ${product.price} USD.`,
-
-      (product) =>
-        `📢 Tendance actuelle : "${product.title}" attire de nombreux visiteurs. Cliquez pour voir les informations complètes et contacter le vendeur. Prix : ${product.price} USD.`
+    // 🆕 TITRES NEW (10)
+    const newTitles = [
+      "🆕 Nouveau sur SHOPNET",
+      "✨ Fraîchement ajouté",
+      "🚀 Découverte exclusive",
+      "🔥 Nouveau produit",
+      "📢 Tout nouveau ici",
+      "⭐ Soyez les premiers",
+      "🆕 Nouvelle arrivée",
+      "💎 Exclusivité SHOPNET",
+      "🚀 Fraîchement publié",
+      "📦 Nouveau listing"
     ];
 
-    // 🔁 3. Envoi notifications
+    // 🔥 MESSAGES TREND (10 longs)
+    const trendBodies = [
+      (p) => `🔥 "${p.title}" (${p.price} USD) est actuellement très demandé sur SHOPNET (${p.price} USD). Les utilisateurs le consultent massivement (${p.price} USD). Ouvrez pour voir les détails complets et agir rapidement.`,
+
+      (p) => `👀 "${p.title}" (${p.price} USD) attire énormément d’attention (${p.price} USD). Plusieurs acheteurs sont déjà dessus (${p.price} USD). Découvrez pourquoi ce produit est tendance.`,
+
+      (p) => `📈 "${p.title}" (${p.price} USD) est en forte croissance (${p.price} USD). Produit très populaire actuellement (${p.price} USD). Cliquez pour voir les informations complètes.`,
+
+      (p) => `🛒 "${p.title}" (${p.price} USD) est fortement recherché sur SHOPNET (${p.price} USD). Les utilisateurs montrent un grand intérêt (${p.price} USD).`,
+
+      (p) => `💥 "${p.title}" (${p.price} USD) connaît une forte demande (${p.price} USD). Ce produit est en train de devenir viral (${p.price} USD).`,
+
+      (p) => `⭐ "${p.title}" (${p.price} USD) est un produit recommandé (${p.price} USD). Beaucoup d’utilisateurs le consultent actuellement (${p.price} USD).`,
+
+      (p) => `🚀 "${p.title}" (${p.price} USD) est en pleine activité (${p.price} USD). Découvrez pourquoi il est si populaire (${p.price} USD).`,
+
+      (p) => `💎 "${p.title}" (${p.price} USD) fait partie des meilleures ventes (${p.price} USD). Produit très performant sur SHOPNET (${p.price} USD).`,
+
+      (p) => `🔥 "${p.title}" (${p.price} USD) est en tendance forte (${p.price} USD). Les acheteurs se précipitent dessus (${p.price} USD).`,
+
+      (p) => `📢 "${p.title}" (${p.price} USD) est actuellement très actif (${p.price} USD). Cliquez pour découvrir tous les détails (${p.price} USD).`
+    ];
+
+    // 🆕 MESSAGES NEW (10 longs)
+    const newBodies = [
+      (p) => `🆕 Nouveau produit : "${p.title}" (${p.price} USD) vient d’être ajouté sur SHOPNET (${p.price} USD). Soyez parmi les premiers à le découvrir (${p.price} USD).`,
+
+      (p) => `✨ "${p.title}" (${p.price} USD) est une toute nouvelle arrivée (${p.price} USD). Découvrez ce produit avant les autres (${p.price} USD).`,
+
+      (p) => `🚀 Nouveau sur SHOPNET : "${p.title}" (${p.price} USD) est maintenant disponible (${p.price} USD). Explorez-le immédiatement (${p.price} USD).`,
+
+      (p) => `📢 "${p.title}" (${p.price} USD) vient d’être publié (${p.price} USD). Nouvelle opportunité sur la plateforme (${p.price} USD).`,
+
+      (p) => `⭐ Exclusivité : "${p.title}" (${p.price} USD) est tout nouveau (${p.price} USD). Soyez parmi les premiers utilisateurs (${p.price} USD).`,
+
+      (p) => `💎 Nouveau produit : "${p.title}" (${p.price} USD) est fraîchement ajouté (${p.price} USD). Découvrez-le maintenant (${p.price} USD).`,
+
+      (p) => `🔥 "${p.title}" (${p.price} USD) vient d’être mis en ligne (${p.price} USD). Ouvrez pour voir les détails (${p.price} USD).`,
+
+      (p) => `📦 "${p.title}" (${p.price} USD) est disponible dès maintenant (${p.price} USD). Nouvelle opportunité SHOPNET (${p.price} USD).`,
+
+      (p) => `🚀 Nouvelle arrivée : "${p.title}" (${p.price} USD) est en ligne (${p.price} USD). Découvrez-le rapidement (${p.price} USD).`,
+
+      (p) => `🆕 Dernière nouveauté : "${p.title}" (${p.price} USD) vient d’être ajouté (${p.price} USD). Cliquez pour explorer (${p.price} USD).`
+    ];
+
+    // 🔁 LOOP USERS
     for (let i = 0; i < users.length; i++) {
       const user = users[i];
-      const product = products[i % products.length];
+
+      const isNew = Math.random() < 0.3;
+
+      const product = isNew
+        ? newProducts[i % newProducts.length]
+        : products[i % products.length];
 
       if (!product) continue;
 
       try {
-        // 🖼 IMAGE
         const [imageRows] = await db.query(
           'SELECT image_path FROM product_images WHERE product_id = ? LIMIT 1',
           [product.id]
@@ -485,23 +522,25 @@ const sendTrendPush = async () => {
             : CLOUDINARY_BASE + imageRows[0].image_path;
         }
 
-        // 🎲 Message aléatoire
-        const randomTitle =
-          titles[Math.floor(Math.random() * titles.length)];
+        const isNewProduct = isNew;
 
-        const randomBodyFunc =
-          bodies[Math.floor(Math.random() * bodies.length)];
+        const randomTitle = isNewProduct
+          ? newTitles[Math.floor(Math.random() * newTitles.length)]
+          : trendTitles[Math.floor(Math.random() * trendTitles.length)];
+
+        const randomBodyFunc = isNewProduct
+          ? newBodies[Math.floor(Math.random() * newBodies.length)]
+          : trendBodies[Math.floor(Math.random() * trendBodies.length)];
 
         const randomBody = randomBodyFunc(product);
 
-        // 🔥 ENVOI PUSH
         await sendPushNotification(
           user.fcm_token,
           randomTitle,
           randomBody,
           {
             productId: String(product.id),
-            type: 'trend',
+            type: isNewProduct ? 'new' : 'trend',
             image: imageUrl
           }
         );
@@ -520,8 +559,6 @@ const sendTrendPush = async () => {
     console.error('❌ TREND GLOBAL ERROR:', error.message);
   }
 };
-
-
 
 // ==========================================
 // 🚀 LANCEMENT AUTOMATIQUE
