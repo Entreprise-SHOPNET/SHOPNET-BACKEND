@@ -382,6 +382,7 @@ const sendTrendPush = async () => {
       SELECT 
         p.id,
         p.title,
+        p.price,
         COUNT(DISTINCT l.id) AS likes,
         COUNT(DISTINCT v.id) AS views,
         COUNT(DISTINCT c.user_id) AS carts
@@ -424,19 +425,40 @@ const sendTrendPush = async () => {
 
     // 🎯 Titres dynamiques
     const titles = [
-      "🔥 Ça explose sur SHOPNET !",
-      "🚀 Tout le monde regarde ça",
-      "💥 Produit en forte demande",
-      "🛒 Ne rate pas cette offre",
-      "🔥 Tendance actuelle"
+      "🔥 Produit tendance sur SHOPNET",
+      "🚀 Une opportunité à ne pas manquer",
+      "👀 Les acheteurs s'y intéressent",
+      "🛒 Ce produit attire l'attention",
+      "💥 Forte demande actuellement",
+      "⭐ Découverte recommandée",
+      "📈 Produit populaire aujourd'hui",
+      "🔥 Plusieurs utilisateurs le consultent"
     ];
 
     const bodies = [
-      (title) => `${title} attire beaucoup d’acheteurs 👀`,
-      (title) => `${title} est très demandé en ce moment 🔥`,
-      (title) => `Les utilisateurs consultent ${title} en ce moment`,
-      (title) => `${title} fait partie des plus populaires`,
-      (title) => `Découvre pourquoi ${title} est tendance 👀`
+      (product) =>
+        `Le produit "${product.title}" attire actuellement de nombreux acheteurs sur SHOPNET. Consultez-le maintenant avant qu'il ne perde sa disponibilité. Prix : ${product.price} USD.`,
+
+      (product) =>
+        `De plus en plus d'utilisateurs consultent "${product.title}" aujourd'hui. Découvrez pourquoi ce produit suscite autant d'intérêt. Disponible à ${product.price} USD.`,
+
+      (product) =>
+        `"${product.title}" fait partie des produits les plus consultés du moment. Cliquez maintenant pour voir les détails et profiter de cette opportunité. Prix : ${product.price} USD.`,
+
+      (product) =>
+        `Ce produit attire fortement l'attention de la communauté SHOPNET. Découvrez "${product.title}" et vérifiez s'il correspond à vos besoins. Prix actuel : ${product.price} USD.`,
+
+      (product) =>
+        `Des acheteurs consultent actuellement "${product.title}". Ne manquez pas cette occasion de découvrir un produit populaire sur SHOPNET. Prix : ${product.price} USD.`,
+
+      (product) =>
+        `Une forte activité est enregistrée autour de "${product.title}". Ouvrez l'application maintenant pour voir pourquoi ce produit est tendance. Prix : ${product.price} USD.`,
+
+      (product) =>
+        `🔥 Produit recommandé : "${product.title}". Plusieurs utilisateurs manifestent de l'intérêt pour cet article. Consultez-le maintenant sur SHOPNET. Prix : ${product.price} USD.`,
+
+      (product) =>
+        `📢 Tendance actuelle : "${product.title}" attire de nombreux visiteurs. Cliquez pour voir les informations complètes et contacter le vendeur. Prix : ${product.price} USD.`
     ];
 
     // 🔁 3. Envoi notifications
@@ -463,10 +485,14 @@ const sendTrendPush = async () => {
             : CLOUDINARY_BASE + imageRows[0].image_path;
         }
 
-        // 🎲 message random
-        const randomTitle = titles[Math.floor(Math.random() * titles.length)];
-        const randomBodyFunc = bodies[Math.floor(Math.random() * bodies.length)];
-        const randomBody = randomBodyFunc(product.title);
+        // 🎲 Message aléatoire
+        const randomTitle =
+          titles[Math.floor(Math.random() * titles.length)];
+
+        const randomBodyFunc =
+          bodies[Math.floor(Math.random() * bodies.length)];
+
+        const randomBody = randomBodyFunc(product);
 
         // 🔥 ENVOI PUSH
         await sendPushNotification(
