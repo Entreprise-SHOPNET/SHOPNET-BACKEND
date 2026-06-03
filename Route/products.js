@@ -1,4 +1,6 @@
 
+
+
 const express = require('express');
 const multer = require('multer');
 const path = require('path');
@@ -417,6 +419,1989 @@ router.get('/mode/ai', async (req, res) => {
 
 
 
+
+
+
+
+
+// ==============================
+// GET /maison/ai — FEED INTELLIGENT IA MAISON MEUBLE (COMPLET)
+// ==============================
+router.get('/maison/ai', async (req, res) => {
+  try {
+    const userId = req.headers.authorization ? req.userId : null;
+
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const offset = (page - 1) * limit;
+
+    const userLat = parseFloat(req.query.lat) || null;
+    const userLon = parseFloat(req.query.lon) || null;
+
+    // ============================
+    // ⚡ CACHE
+    // ============================
+    const cacheKey = `maison:ai:${userId || 'guest'}:${page}:${userLat}:${userLon}`;
+    const cached = await redisClient.get(cacheKey);
+
+    if (cached) {
+      console.log("⚡ CACHE MAISON HIT");
+      return res.json(JSON.parse(cached));
+    }
+
+    // ============================
+    // 🧠 1. Préférences utilisateur
+    // ============================
+    let likedCategories = [];
+
+    if (userId) {
+      const [likes] = await db.query(`
+        SELECT DISTINCT p.category
+        FROM product_likes pl
+        JOIN products p ON pl.product_id = p.id
+        WHERE pl.user_id = ?
+        LIMIT 10
+      `, [userId]);
+
+      likedCategories = likes.map(l => l.category);
+    }
+
+    // ============================
+    // 🧠 2. PRODUITS MAISON (FIX ICI 🔥)
+    // ============================
+    const [products] = await db.query(`
+      SELECT 
+        p.*,
+        u.fullName AS seller_name,
+        u.profile_photo AS seller_avatar,
+
+        (
+          SELECT pi.absolute_url
+          FROM product_images pi
+          WHERE pi.product_id = p.id
+          LIMIT 1
+        ) AS image_url
+
+      FROM products p
+      LEFT JOIN utilisateurs u ON p.seller_id = u.id
+
+      WHERE LOWER(TRIM(p.category)) = 'home'
+      AND p.is_active = 1
+
+      LIMIT 200
+    `);
+
+    // ============================
+    // 🧠 3. IA SCORING MAISON
+    // ============================
+    const scored = products.map(p => {
+      let score = 0;
+
+      // 🔥 Boost prioritaire
+      if (p.is_boosted) score += 80;
+      if (p.is_featured) score += 40;
+
+      // 📊 Engagement
+      score += (p.likes_count || 0) * 2;
+      score += (p.shares_count || 0) * 2;
+      score += (p.comments_count || 0) * 1.5;
+      score += (p.views_count || 0) * 1;
+
+      // 💰 Ventes
+      score += (p.sales || 0) * 8;
+
+      // 🎯 Préférences utilisateur
+      if (likedCategories.includes(p.category)) {
+        score += 30;
+      }
+
+      // 📍 Distance
+      let distance = null;
+
+      if (userLat && userLon && p.latitude && p.longitude) {
+        const R = 6371;
+
+        const dLat = (p.latitude - userLat) * Math.PI / 180;
+        const dLon = (p.longitude - userLon) * Math.PI / 180;
+
+        const a =
+          Math.sin(dLat / 2) ** 2 +
+          Math.cos(userLat * Math.PI / 180) *
+          Math.cos(p.latitude * Math.PI / 180) *
+          Math.sin(dLon / 2) ** 2;
+
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        distance = R * c;
+
+        if (distance < 5) score += 100;
+        else if (distance < 20) score += 60;
+        else if (distance < 50) score += 30;
+        else score -= 10;
+      }
+
+      // 💸 Prix intelligent
+      if (p.price) {
+        if (p.price < 20) score += 20;
+        else if (p.price < 100) score += 10;
+      }
+
+      // 🧠 Popularité
+      score += (p.popularity_score || 0) * 2;
+
+      return {
+        ...p,
+        score,
+        distance_km: distance
+      };
+    });
+
+    // ============================
+    // 🔥 TRI IA
+    // ============================
+    const sorted = scored.sort((a, b) => b.score - a.score);
+
+    // ============================
+    // 📄 PAGINATION
+    // ============================
+    const paginated = sorted.slice(offset, offset + limit);
+
+    // ============================
+    // 📦 FORMAT FINAL
+    // ============================
+    const result = paginated.map(p => ({
+      id: p.id,
+      title: p.title,
+      price: parseFloat(p.price),
+      image: p.image_url,
+      location: p.location,
+      score: p.score,
+      distance: p.distance_km,
+      seller: {
+        name: p.seller_name,
+        avatar: p.seller_avatar
+      }
+    }));
+
+    const response = {
+      success: true,
+      page,
+      count: result.length,
+      has_more: offset + limit < sorted.length,
+      ai_maison: true,
+      products: result
+    };
+
+    // ============================
+    // ⚡ CACHE SAVE
+    // ============================
+    await redisClient.setEx(cacheKey, 300, JSON.stringify(response));
+
+    res.json(response);
+
+  } catch (error) {
+    console.error("❌ MAISON AI ERROR:", error);
+    res.status(500).json({ success: false });
+  }
+});
+
+
+
+// ==============================
+// GET /ai/computers — FEED IA ORDINATEURS (PRO SHOPNET)
+// ==============================
+router.get('/ai/computers', async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const offset = (page - 1) * limit;
+
+    const cacheKey = `ai:computers:${page}`;
+    const cached = await redisClient.get(cacheKey);
+
+    if (cached) {
+      return res.json(JSON.parse(cached));
+    }
+
+    // ============================
+    // 🧠 1. GET PRODUCTS
+    // ============================
+    const [products] = await db.query(`
+      SELECT 
+        p.*,
+        u.fullName AS seller_name,
+        u.profile_photo AS seller_avatar,
+        (
+          SELECT pi.absolute_url
+          FROM product_images pi
+          WHERE pi.product_id = p.id
+          LIMIT 1
+        ) AS image_url
+      FROM products p
+      LEFT JOIN utilisateurs u ON p.seller_id = u.id
+      WHERE p.is_active = 1
+    `);
+
+    // ============================
+    // 🧠 2. IA CATEGORY DETECTION
+    // ============================
+    function detectCategory(title, description) {
+      const text = `${title} ${description}`.toLowerCase();
+
+      if (
+        text.includes('pc') ||
+        text.includes('ordinateur') ||
+        text.includes('laptop') ||
+        text.includes('portable') ||
+        text.includes('macbook') ||
+        text.includes('desktop') ||
+        text.includes('gaming') ||
+        text.includes('hp') ||
+        text.includes('dell') ||
+        text.includes('lenovo') ||
+        text.includes('asus') ||
+        text.includes('msi') ||
+        text.includes('acer')
+      ) {
+        return 'computers';
+      }
+
+      return 'other';
+    }
+
+    // ============================
+    // 🧠 3. FILTER STRICT IA
+    // ============================
+    const filtered = products.filter(p => {
+      const cat = detectCategory(p.title, p.description);
+      return cat === 'computers';
+    });
+
+    // ============================
+    // 🧠 4. SCORING IA
+    // ============================
+    const scored = filtered.map(p => {
+      const text = `${p.title} ${p.description}`.toLowerCase();
+
+      let score = 0;
+
+      // 🔥 Boost system
+      if (p.is_boosted) score += 80;
+      if (p.is_featured) score += 40;
+
+      // 📊 Engagement
+      score += (p.likes_count || 0) * 3;
+      score += (p.views_count || 0) * 1.5;
+      score += (p.comments_count || 0) * 2;
+      score += (p.sales || 0) * 6;
+
+      // 💻 BONUS ORDINATEUR PUR
+      if (text.includes('gaming')) score += 30;
+      if (text.includes('laptop')) score += 20;
+      if (text.includes('macbook')) score += 40;
+
+      // 💰 Prix attractif
+      if (p.price < 300) score += 30;
+      else if (p.price < 800) score += 15;
+
+      // 🧠 Popularité
+      score += (p.popularity_score || 0) * 2;
+
+      return {
+        ...p,
+        score,
+        ai_category: 'computers'
+      };
+    });
+
+    // ============================
+    // 🔥 5. SORT BY IA SCORE
+    // ============================
+    const sorted = scored.sort((a, b) => b.score - a.score);
+
+    // ============================
+    // 📄 6. PAGINATION
+    // ============================
+    const paginated = sorted.slice(offset, offset + limit);
+
+    // ============================
+    // 📦 7. FORMAT RESPONSE
+    // ============================
+    const result = paginated.map(p => ({
+      id: p.id,
+      title: p.title,
+      price: parseFloat(p.price),
+      image: p.image_url,
+      location: p.location,
+      condition: p.condition,
+      stock: p.stock,
+      score: p.score,
+      ai_category: p.ai_category,
+
+      seller: {
+        name: p.seller_name,
+        avatar: p.seller_avatar
+      }
+    }));
+
+    const response = {
+      success: true,
+      page,
+      count: result.length,
+      has_more: offset + limit < sorted.length,
+      category: "computers",
+      ai_mode: true,
+      products: result
+    };
+
+    // ============================
+    // ⚡ CACHE 5 MIN
+    // ============================
+    await redisClient.setEx(cacheKey, 300, JSON.stringify(response));
+
+    return res.json(response);
+
+  } catch (error) {
+    console.error("❌ AI COMPUTERS ERROR:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error"
+    });
+  }
+});
+
+
+
+
+
+
+    // ============================
+    // 🧠 1. GET BEAUTY PRODUCTS ONLY
+    // ============================
+router.get('/ai/beauty', async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const offset = (page - 1) * limit;
+
+    const cacheKey = `ai:beauty:${page}`;
+    const cached = await redisClient.get(cacheKey);
+
+    if (cached) {
+      return res.json(JSON.parse(cached));
+    }
+
+    // ============================
+    // 🧠 1. GET BEAUTY PRODUCTS ONLY
+    // ============================
+    const [products] = await db.query(`
+      SELECT 
+        p.*,
+        u.fullName AS seller_name,
+        u.profile_photo AS seller_avatar,
+        (
+          SELECT pi.absolute_url
+          FROM product_images pi
+          WHERE pi.product_id = p.id
+          LIMIT 1
+        ) AS image_url
+      FROM products p
+      LEFT JOIN utilisateurs u ON p.seller_id = u.id
+      WHERE p.category = 'beauty'
+      AND p.is_active = 1
+    `);
+
+    // ============================
+    // 🧠 2. IA SCORING BEAUTY
+    // ============================
+    const scored = products.map(p => {
+      const text = `${p.title} ${p.description}`.toLowerCase();
+
+      let score = 0;
+
+      // 🔥 boost
+      if (p.is_boosted) score += 80;
+      if (p.is_featured) score += 40;
+
+      // 📊 engagement
+      score += (p.likes_count || 0) * 3;
+      score += (p.views_count || 0) * 1.5;
+      score += (p.comments_count || 0) * 2;
+      score += (p.sales || 0) * 6;
+
+      // 💄 BEAUTY TREND BONUS
+      if (
+        text.includes('crème') ||
+        text.includes('cream') ||
+        text.includes('maquillage') ||
+        text.includes('makeup') ||
+        text.includes('fond de teint') ||
+        text.includes('rouge à lèvres') ||
+        text.includes('shampooing') ||
+        text.includes('perruque') ||
+        text.includes('cheveux')
+      ) {
+        score += 50;
+      }
+
+      // 💰 prix attractif
+      if (p.price < 20) score += 30;
+      else if (p.price < 50) score += 15;
+
+      // 🧠 popularité globale
+      score += (p.popularity_score || 0) * 2;
+
+      return {
+        ...p,
+        score,
+        ai_category: 'beauty'
+      };
+    });
+
+    // ============================
+    // 🔥 3. SORT IA
+    // ============================
+    const sorted = scored.sort((a, b) => b.score - a.score);
+
+    // ============================
+    // 📄 4. PAGINATION
+    // ============================
+    const paginated = sorted.slice(offset, offset + limit);
+
+    // ============================
+    // 📦 5. FORMAT RESPONSE
+    // ============================
+    const result = paginated.map(p => ({
+      id: p.id,
+      title: p.title,
+      price: parseFloat(p.price),
+      image: p.image_url,
+      location: p.location,
+      condition: p.condition,
+      stock: p.stock,
+      score: p.score,
+      ai_category: 'beauty',
+
+      seller: {
+        name: p.seller_name,
+        avatar: p.seller_avatar
+      }
+    }));
+
+    const response = {
+      success: true,
+      page,
+      count: result.length,
+      has_more: offset + limit < sorted.length,
+      category: "beauty",
+      ai_mode: true,
+      products: result
+    };
+
+    // ============================
+    // ⚡ CACHE
+    // ============================
+    await redisClient.setEx(cacheKey, 300, JSON.stringify(response));
+
+    return res.json(response);
+
+  } catch (error) {
+    console.error("❌ AI BEAUTY ERROR:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error"
+    });
+  }
+});
+
+
+
+
+
+// ==============================
+// GET /ai/auto-moto — AUTO + FILTRE IA
+// ==============================
+router.get('/ai/auto-moto', async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const offset = (page - 1) * limit;
+
+    const cacheKey = `ai:auto-moto:${page}`;
+    const cached = await redisClient.get(cacheKey);
+
+    if (cached) {
+      return res.json(JSON.parse(cached));
+    }
+
+    // ============================
+    // 🧠 1. RÉCUPÉRATION PRODUITS (AUTO + GLOBAL)
+    // ============================
+    const [products] = await db.query(`
+      SELECT 
+        p.*,
+        u.fullName AS seller_name,
+        u.profile_photo AS seller_avatar,
+
+        (
+          SELECT pi.absolute_url
+          FROM product_images pi
+          WHERE pi.product_id = p.id
+          LIMIT 1
+        ) AS image_url
+
+      FROM products p
+      LEFT JOIN utilisateurs u ON p.seller_id = u.id
+
+      WHERE p.is_active = 1
+      AND (
+        LOWER(TRIM(p.category)) = 'auto'
+        OR LOWER(p.title) LIKE '%auto%'
+        OR LOWER(p.title) LIKE '%voiture%'
+        OR LOWER(p.title) LIKE '%moto%'
+        OR LOWER(p.description) LIKE '%auto%'
+        OR LOWER(p.description) LIKE '%voiture%'
+        OR LOWER(p.description) LIKE '%moto%'
+      )
+
+      LIMIT 300
+    `);
+
+    // ============================
+    // 🧠 2. FILTRE IA (ANTI FAUX POSITIF)
+    // ============================
+    const filtered = products.filter(p => {
+      const text = `${p.title} ${p.description}`.toLowerCase();
+
+      return (
+        text.includes('voiture') ||
+        text.includes('auto') ||
+        text.includes('car') ||
+        text.includes('véhicule') ||
+        text.includes('moto') ||
+        text.includes('motor') ||
+        text.includes('bike') ||
+        text.includes('scooter') ||
+        text.includes('yamaha') ||
+        text.includes('honda') ||
+        text.includes('toyota') ||
+        text.includes('nissan') ||
+        text.includes('bmw') ||
+        text.includes('mercedes')
+      ) || p.category.toLowerCase().trim() === 'auto';
+    });
+
+    // ============================
+    // 🧠 3. SCORING IA
+    // ============================
+    const scored = filtered.map(p => {
+      let score = 0;
+
+      if (p.is_boosted) score += 80;
+      if (p.is_featured) score += 40;
+
+      score += (p.likes_count || 0) * 3;
+      score += (p.views_count || 0) * 1.5;
+      score += (p.comments_count || 0) * 2;
+      score += (p.sales || 0) * 6;
+
+      if (p.price > 500) score += 20;
+      if (p.price > 1000) score += 30;
+
+      score += (p.popularity_score || 0) * 2;
+
+      return {
+        ...p,
+        score
+      };
+    });
+
+    // ============================
+    // 🔥 TRI
+    // ============================
+    const sorted = scored.sort((a, b) => b.score - a.score);
+
+    // ============================
+    // 📄 PAGINATION
+    // ============================
+    const paginated = sorted.slice(offset, offset + limit);
+
+    // ============================
+    // 📦 FORMAT FINAL
+    // ============================
+    const result = paginated.map(p => ({
+      id: p.id,
+      title: p.title,
+      price: parseFloat(p.price),
+      image: p.image_url,
+      location: p.location,
+      condition: p.condition,
+      stock: p.stock,
+      score: p.score,
+      ai_category: "auto-moto",
+
+      seller: {
+        name: p.seller_name,
+        avatar: p.seller_avatar
+      }
+    }));
+
+    const response = {
+      success: true,
+      page,
+      count: result.length,
+      has_more: offset + limit < sorted.length,
+      category: "auto-moto",
+      ai_mode: true,
+      products: result
+    };
+
+    await redisClient.setEx(cacheKey, 300, JSON.stringify(response));
+
+    return res.json(response);
+
+  } catch (error) {
+    console.error("❌ AUTO MOTO ERROR:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error"
+    });
+  }
+});
+
+
+
+
+
+// ==============================
+// GET /ai/food — FEED ALIMENTAIRE (IA PRO)
+// ==============================
+router.get('/ai/food', async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const offset = (page - 1) * limit;
+
+    const cacheKey = `ai:food:${page}`;
+    const cached = await redisClient.get(cacheKey);
+
+    if (cached) {
+      console.log("⚡ CACHE FOOD HIT");
+      return res.json(JSON.parse(cached));
+    }
+
+    // ============================
+    // 🧠 1. RÉCUPÉRATION PRODUITS
+    // ============================
+    const [products] = await db.query(`
+      SELECT 
+        p.*,
+        u.fullName AS seller_name,
+        u.profile_photo AS seller_avatar,
+
+        (
+          SELECT pi.absolute_url
+          FROM product_images pi
+          WHERE pi.product_id = p.id
+          LIMIT 1
+        ) AS image_url
+
+      FROM products p
+      LEFT JOIN utilisateurs u ON p.seller_id = u.id
+      WHERE p.is_active = 1
+    `);
+
+    // ============================
+    // 🧠 2. FILTRE ALIMENTAIRE (ULTRA IA)
+    // ============================
+    const filtered = products.filter(p => {
+      const text = `${p.title} ${p.description}`
+        .toLowerCase()
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, ""); // supprime accents
+
+      return (
+        // 🍽️ général
+        text.includes('manger') ||
+        text.includes('nourriture') ||
+        text.includes('aliment') ||
+        text.includes('repas') ||
+        text.includes('plat') ||
+
+        // 🍞 boulangerie
+        text.includes('pain') ||
+        text.includes('pains') ||
+        text.includes('baguette') ||
+        text.includes('croissant') ||
+
+        // 🍊 fruits
+        text.includes('orange') ||
+        text.includes('pomme') ||
+        text.includes('banane') ||
+        text.includes('mangue') ||
+        text.includes('ananas') ||
+        text.includes('citron') ||
+        text.includes('avocat') ||
+
+        // 🥦 légumes
+        text.includes('legume') ||
+        text.includes('legumes') ||
+        text.includes('carotte') ||
+        text.includes('tomate') ||
+        text.includes('oignon') ||
+        text.includes('chou') ||
+        text.includes('salade') ||
+
+        // 🌾 base
+        text.includes('farine') ||
+        text.includes('riz') ||
+        text.includes('haricot') ||
+        text.includes('mais') ||
+        text.includes('semoule') ||
+
+        // 🥩 protéines
+        text.includes('viande') ||
+        text.includes('poisson') ||
+        text.includes('poulet') ||
+        text.includes('boeuf') ||
+        text.includes('porc') ||
+
+        // 🥛 lait
+        text.includes('lait') ||
+        text.includes('fromage') ||
+        text.includes('yaourt') ||
+        text.includes('beurre') ||
+
+        // 🍰 sucré
+        text.includes('gateau') ||
+        text.includes('biscuit') ||
+        text.includes('chocolat') ||
+        text.includes('sucre') ||
+
+        // 🥤 boissons
+        text.includes('boisson') ||
+        text.includes('jus') ||
+        text.includes('eau') ||
+        text.includes('coca') ||
+        text.includes('fanta') ||
+        text.includes('sprite') ||
+        text.includes('biere') ||
+        text.includes('vin') ||
+
+        // 🍔 fast food
+        text.includes('pizza') ||
+        text.includes('burger') ||
+        text.includes('sandwich') ||
+        text.includes('shawarma') ||
+        text.includes('fast food') ||
+
+        // 🍽️ restaurant
+        text.includes('restaurant') ||
+        text.includes('menu') ||
+        text.includes('cuisine')
+      );
+    });
+
+    // ============================
+    // 🧠 3. SCORING IA
+    // ============================
+    const scored = filtered.map(p => {
+      let score = 0;
+
+      // 🔥 boost
+      if (p.is_boosted) score += 80;
+      if (p.is_featured) score += 40;
+
+      // 📊 engagement
+      score += (p.likes_count || 0) * 3;
+      score += (p.views_count || 0) * 1.5;
+      score += (p.comments_count || 0) * 2;
+      score += (p.sales || 0) * 6;
+
+      // 💰 prix
+      if (p.price < 10) score += 30;
+      else if (p.price < 50) score += 15;
+
+      // 🧠 popularité
+      score += (p.popularity_score || 0) * 2;
+
+      return {
+        ...p,
+        score
+      };
+    });
+
+    // ============================
+    // 🔥 TRI
+    // ============================
+    const sorted = scored.sort((a, b) => b.score - a.score);
+
+    // ============================
+    // 📄 PAGINATION
+    // ============================
+    const paginated = sorted.slice(offset, offset + limit);
+
+    // ============================
+    // 📦 FORMAT FINAL
+    // ============================
+    const result = paginated.map(p => ({
+      id: p.id,
+      title: p.title,
+      price: parseFloat(p.price),
+      image: p.image_url,
+      location: p.location,
+      condition: p.condition,
+      stock: p.stock,
+      score: p.score,
+      ai_category: "food",
+
+      seller: {
+        name: p.seller_name,
+        avatar: p.seller_avatar
+      }
+    }));
+
+    const response = {
+      success: true,
+      page,
+      count: result.length,
+      has_more: offset + limit < sorted.length,
+      category: "food",
+      ai_mode: true,
+      products: result
+    };
+
+    await redisClient.setEx(cacheKey, 300, JSON.stringify(response));
+
+    res.json(response);
+
+  } catch (error) {
+    console.error("❌ FOOD AI ERROR:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error"
+    });
+  }
+});
+
+
+
+
+// ==============================
+// GET /ai/services — FEED SERVICES (IA ULTRA INTELLIGENT)
+// ==============================
+router.get('/ai/services', async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const offset = (page - 1) * limit;
+
+    const cacheKey = `ai:services:${page}`;
+    const cached = await redisClient.get(cacheKey);
+
+    if (cached) {
+      console.log("⚡ CACHE SERVICES HIT");
+      return res.json(JSON.parse(cached));
+    }
+
+    // ============================
+    // 🧠 1. RÉCUPÉRATION PRODUITS
+    // ============================
+    const [products] = await db.query(`
+      SELECT 
+        p.*,
+        u.fullName AS seller_name,
+        u.profile_photo AS seller_avatar,
+
+        (
+          SELECT pi.absolute_url
+          FROM product_images pi
+          WHERE pi.product_id = p.id
+          LIMIT 1
+        ) AS image_url
+
+      FROM products p
+      LEFT JOIN utilisateurs u ON p.seller_id = u.id
+      WHERE p.is_active = 1
+      LIMIT 300
+    `);
+
+    // ============================
+    // 🧠 2. FILTRE IA SERVICES (TRÈS PUISSANT)
+    // ============================
+    const filtered = products.filter(p => {
+      const text = `${p.title} ${p.description}`.toLowerCase();
+
+      return (
+        // 🔧 SERVICES GÉNÉRAUX
+        text.includes('service') ||
+        text.includes('prestation') ||
+        text.includes('travail') ||
+        text.includes('mission') ||
+
+        // 🛠️ TECHNIQUE
+        text.includes('réparation') ||
+        text.includes('reparation') ||
+        text.includes('maintenance') ||
+        text.includes('installation') ||
+        text.includes('electricien') ||
+        text.includes('plombier') ||
+        text.includes('mecanicien') ||
+        text.includes('garage') ||
+
+        // 💻 DIGITAL
+        text.includes('développement') ||
+        text.includes('developpement') ||
+        text.includes('site web') ||
+        text.includes('application') ||
+        text.includes('design') ||
+        text.includes('graphisme') ||
+        text.includes('marketing') ||
+        text.includes('seo') ||
+        text.includes('community manager') ||
+
+        // 🚚 LOGISTIQUE
+        text.includes('livraison') ||
+        text.includes('transport') ||
+        text.includes('chauffeur') ||
+        text.includes('demenagement') ||
+        text.includes('déménagement') ||
+
+        // 🏠 MAISON
+        text.includes('ménage') ||
+        text.includes('nettoyage') ||
+        text.includes('gardien') ||
+        text.includes('sécurité') ||
+
+        // 💇 BEAUTÉ SERVICES
+        text.includes('coiffure') ||
+        text.includes('coiffeur') ||
+        text.includes('salon') ||
+        text.includes('maquillage') ||
+        text.includes('esthétique') ||
+
+        // 📚 FORMATION
+        text.includes('formation') ||
+        text.includes('cours') ||
+        text.includes('coach') ||
+        text.includes('consultation') ||
+
+        // 🍽️ RESTAURATION (SERVICE)
+        text.includes('restaurant') ||
+        text.includes('traiteur') ||
+        text.includes('cuisine') ||
+
+        // 🧑‍💼 BUSINESS
+        text.includes('consultant') ||
+        text.includes('expert') ||
+        text.includes('freelance') ||
+        text.includes('agence')
+      );
+    });
+
+    // ============================
+    // 🧠 3. SCORING IA SERVICES
+    // ============================
+    const scored = filtered.map(p => {
+      let score = 0;
+
+      // 🔥 boost
+      if (p.is_boosted) score += 100;
+      if (p.is_featured) score += 50;
+
+      // 📊 engagement
+      score += (p.likes_count || 0) * 3;
+      score += (p.views_count || 0) * 2;
+      score += (p.comments_count || 0) * 2;
+      score += (p.sales || 0) * 5;
+
+      // 💼 BONUS SERVICE (si mot fort)
+      const text = `${p.title} ${p.description}`.toLowerCase();
+
+      if (text.includes('service')) score += 40;
+      if (text.includes('réparation') || text.includes('reparation')) score += 30;
+      if (text.includes('livraison')) score += 25;
+      if (text.includes('développement') || text.includes('developpement')) score += 35;
+
+      // 🧠 popularité
+      score += (p.popularity_score || 0) * 2;
+
+      return {
+        ...p,
+        score
+      };
+    });
+
+    // ============================
+    // 🔥 TRI
+    // ============================
+    const sorted = scored.sort((a, b) => b.score - a.score);
+
+    // ============================
+    // 📄 PAGINATION
+    // ============================
+    const paginated = sorted.slice(offset, offset + limit);
+
+    // ============================
+    // 📦 FORMAT FINAL
+    // ============================
+    const result = paginated.map(p => ({
+      id: p.id,
+      title: p.title,
+      price: parseFloat(p.price),
+      image: p.image_url,
+      location: p.location,
+      score: p.score,
+      ai_category: "services",
+
+      seller: {
+        name: p.seller_name,
+        avatar: p.seller_avatar
+      }
+    }));
+
+    const response = {
+      success: true,
+      page,
+      count: result.length,
+      has_more: offset + limit < sorted.length,
+      category: "services",
+      ai_mode: true,
+      products: result
+    };
+
+    // ============================
+    // ⚡ CACHE
+    // ============================
+    await redisClient.setEx(cacheKey, 300, JSON.stringify(response));
+
+    res.json(response);
+
+  } catch (error) {
+    console.error("❌ SERVICES AI ERROR:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error"
+    });
+  }
+});
+
+
+
+
+
+// ==============================
+// GET /ai/global — FEED GLOBAL IA (ULTRA INTELLIGENT)
+// ==============================
+router.get('/ai/global', async (req, res) => {
+  try {
+    const userId = req.headers.authorization ? req.userId : null;
+
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const offset = (page - 1) * limit;
+
+    const cacheKey = `ai:global:${userId || 'guest'}:${page}`;
+    const cached = await redisClient.get(cacheKey);
+
+    if (cached) {
+      console.log("⚡ CACHE GLOBAL HIT");
+      return res.json(JSON.parse(cached));
+    }
+
+    // ============================
+    // 🧠 1. PRODUITS (TOUT)
+    // ============================
+    const [products] = await db.query(`
+      SELECT 
+        p.*,
+        u.fullName AS seller_name,
+        u.profile_photo AS seller_avatar,
+
+        (
+          SELECT pi.absolute_url
+          FROM product_images pi
+          WHERE pi.product_id = p.id
+          LIMIT 1
+        ) AS image_url
+
+      FROM products p
+      LEFT JOIN utilisateurs u ON p.seller_id = u.id
+      WHERE p.is_active = 1
+      LIMIT 300
+    `);
+
+    // ============================
+    // 🧠 2. SCORING IA ULTRA
+    // ============================
+    const scored = products.map(p => {
+      let score = 0;
+
+      // 🔥 BOOST = priorité maximale
+      if (p.is_boosted) score += 150;
+      if (p.boost_priority) score += 80;
+
+      // ⭐ FEATURED
+      if (p.is_featured) score += 60;
+
+      // 📊 ENGAGEMENT
+      score += (p.likes_count || 0) * 4;
+      score += (p.shares_count || 0) * 5;
+      score += (p.comments_count || 0) * 3;
+      score += (p.views_count || 0) * 1.5;
+
+      // 💰 VENTES (TRÈS IMPORTANT)
+      score += (p.sales || 0) * 10;
+
+      // 🧠 POPULARITÉ GLOBALE
+      score += (p.popularity_score || 0) * 3;
+
+      // ⏱️ RÉCENCE (ULTRA IMPORTANT)
+      const now = new Date();
+      const createdAt = new Date(p.created_at);
+      const hours = (now - createdAt) / (1000 * 60 * 60);
+
+      if (hours < 1) score += 100;
+      else if (hours < 24) score += 80;
+      else if (hours < 72) score += 50;
+      else if (hours < 168) score += 30; // 7 jours
+      else score += 5;
+
+      // 💸 PRIX INTELLIGENT
+      if (p.price) {
+        if (p.price < 20) score += 20;
+        else if (p.price < 100) score += 10;
+      }
+
+      return {
+        ...p,
+        score
+      };
+    });
+
+    // ============================
+    // 🔥 TRI GLOBAL IA
+    // ============================
+    const sorted = scored.sort((a, b) => b.score - a.score);
+
+    // ============================
+    // 📄 PAGINATION
+    // ============================
+    const paginated = sorted.slice(offset, offset + limit);
+
+    // ============================
+    // 📦 FORMAT FINAL CLEAN
+    // ============================
+    const result = paginated.map(p => ({
+      id: p.id,
+      title: p.title,
+      price: parseFloat(p.price),
+      image: p.image_url,
+      location: p.location,
+      score: p.score,
+      boost: p.is_boosted ? true : false,
+      created_at: p.created_at,
+
+      seller: {
+        name: p.seller_name,
+        avatar: p.seller_avatar
+      }
+    }));
+
+    const response = {
+      success: true,
+      page,
+      count: result.length,
+      has_more: offset + limit < sorted.length,
+      ai_global: true,
+      products: result
+    };
+
+    // ============================
+    // ⚡ CACHE
+    // ============================
+    await redisClient.setEx(cacheKey, 300, JSON.stringify(response));
+
+    res.json(response);
+
+  } catch (error) {
+    console.error("❌ GLOBAL AI ERROR:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error"
+    });
+  }
+});
+
+
+
+
+
+
+// ==============================
+// GET /ai/recent-local — PRODUITS RÉCENTS -24H + LOCALISATION
+// ==============================
+router.get('/ai/recent-local', async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const offset = (page - 1) * limit;
+
+    const userLat = parseFloat(req.query.lat) || null;
+    const userLon = parseFloat(req.query.lon) || null;
+
+    const cacheKey = `ai:recent-local:${page}:${userLat}:${userLon}`;
+    const cached = await redisClient.get(cacheKey);
+
+    if (cached) {
+      console.log("⚡ CACHE RECENT LOCAL HIT");
+      return res.json(JSON.parse(cached));
+    }
+
+    // ============================
+    // 🧠 1. PRODUITS -24H
+    // ============================
+    const [products] = await db.query(`
+      SELECT 
+        p.*,
+        u.fullName AS seller_name,
+        u.profile_photo AS seller_avatar,
+
+        (
+          SELECT pi.absolute_url
+          FROM product_images pi
+          WHERE pi.product_id = p.id
+          LIMIT 1
+        ) AS image_url
+
+      FROM products p
+      LEFT JOIN utilisateurs u ON p.seller_id = u.id
+
+      WHERE p.is_active = 1
+      AND p.created_at >= NOW() - INTERVAL 24 HOUR
+
+      LIMIT 300
+    `);
+
+    // ============================
+    // 🧠 2. SCORING IA LOCAL
+    // ============================
+    const scored = products.map(p => {
+      let score = 0;
+
+      // 🔥 BOOST
+      if (p.is_boosted) score += 100;
+      if (p.is_featured) score += 50;
+
+      // 📈 POPULARITÉ
+      score += (p.likes_count || 0) * 4;
+      score += (p.views_count || 0) * 2;
+      score += (p.comments_count || 0) * 3;
+      score += (p.sales || 0) * 8;
+
+      // 📍 DISTANCE (TRÈS IMPORTANT)
+      let distance = null;
+
+      if (userLat && userLon && p.latitude && p.longitude) {
+        const R = 6371;
+
+        const dLat = (p.latitude - userLat) * Math.PI / 180;
+        const dLon = (p.longitude - userLon) * Math.PI / 180;
+
+        const a =
+          Math.sin(dLat / 2) ** 2 +
+          Math.cos(userLat * Math.PI / 180) *
+          Math.cos(p.latitude * Math.PI / 180) *
+          Math.sin(dLon / 2) ** 2;
+
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        distance = R * c;
+
+        // 📍 scoring distance
+        if (distance < 5) score += 120;
+        else if (distance < 20) score += 80;
+        else if (distance < 50) score += 40;
+        else score -= 20;
+      }
+
+      // ⏱️ ULTRA RÉCENT (moins de 6h boost)
+      const now = new Date();
+      const createdAt = new Date(p.created_at);
+      const hours = (now - createdAt) / (1000 * 60 * 60);
+
+      if (hours < 1) score += 100;
+      else if (hours < 6) score += 70;
+      else if (hours < 24) score += 40;
+
+      return {
+        ...p,
+        score,
+        distance_km: distance
+      };
+    });
+
+    // ============================
+    // 🔥 TRI IA
+    // ============================
+    const sorted = scored.sort((a, b) => b.score - a.score);
+
+    // ============================
+    // 📄 PAGINATION
+    // ============================
+    const paginated = sorted.slice(offset, offset + limit);
+
+    // ============================
+    // 📦 FORMAT FINAL
+    // ============================
+    const result = paginated.map(p => ({
+      id: p.id,
+      title: p.title,
+      price: parseFloat(p.price),
+      image: p.image_url,
+      location: p.location,
+      score: p.score,
+      distance: p.distance_km,
+      created_at: p.created_at,
+
+      seller: {
+        name: p.seller_name,
+        avatar: p.seller_avatar
+      }
+    }));
+
+    const response = {
+      success: true,
+      page,
+      count: result.length,
+      has_more: offset + limit < sorted.length,
+      ai_recent_local: true,
+      products: result
+    };
+
+    // ============================
+    // ⚡ CACHE
+    // ============================
+    await redisClient.setEx(cacheKey, 120, JSON.stringify(response)); // 2 min cache
+
+    res.json(response);
+
+  } catch (error) {
+    console.error("❌ RECENT LOCAL ERROR:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error"
+    });
+  }
+});
+
+
+
+
+// ==============================
+// GET /ai/flash-deals — OFFRES LIMITÉES (IA)
+// ==============================
+router.get('/ai/flash-deals', async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = 20;
+    const offset = (page - 1) * limit;
+
+    const userLat = parseFloat(req.query.lat) || null;
+    const userLon = parseFloat(req.query.lon) || null;
+
+    const cacheKey = `ai:flash:${page}:${userLat}:${userLon}`;
+    const cached = await redisClient.get(cacheKey);
+
+    if (cached) {
+      console.log("⚡ CACHE FLASH DEALS HIT");
+      return res.json(JSON.parse(cached));
+    }
+
+    // ============================
+    // 🧠 1. PRODUITS
+    // ============================
+    const [products] = await db.query(`
+      SELECT 
+        p.*,
+        u.fullName AS seller_name,
+        u.profile_photo AS seller_avatar,
+
+        (
+          SELECT pi.absolute_url
+          FROM product_images pi
+          WHERE pi.product_id = p.id
+          LIMIT 1
+        ) AS image_url
+
+      FROM products p
+      LEFT JOIN utilisateurs u ON p.seller_id = u.id
+      WHERE p.is_active = 1
+    `);
+
+    // ============================
+    // 🧠 2. FILTRE FLASH DEALS
+    // ============================
+    const filtered = products.filter(p => {
+      const hasDiscount = p.original_price && p.original_price > p.price;
+      const isBoosted = p.is_boosted === 1;
+      const isRecent = new Date(p.created_at) > new Date(Date.now() - 48 * 60 * 60 * 1000);
+
+      return hasDiscount || isBoosted || isRecent;
+    });
+
+    // ============================
+    // 🧠 3. SCORING IA
+    // ============================
+    const scored = filtered.map(p => {
+      let score = 0;
+
+      // 🔥 réduction (TRÈS IMPORTANT)
+      if (p.original_price && p.price) {
+        const discount = ((p.original_price - p.price) / p.original_price) * 100;
+        score += discount * 2;
+      }
+
+      // ⚡ boost
+      if (p.is_boosted) score += 80;
+      if (p.is_featured) score += 40;
+
+      // 📊 popularité
+      score += (p.sales || 0) * 10;
+      score += (p.views_count || 0) * 2;
+      score += (p.likes_count || 0) * 3;
+
+      // 🕒 récence
+      const hours = (Date.now() - new Date(p.created_at)) / (1000 * 60 * 60);
+      if (hours < 6) score += 60;
+      else if (hours < 24) score += 40;
+      else if (hours < 48) score += 20;
+
+      // 📍 localisation
+      let distance = null;
+      if (userLat && userLon && p.latitude && p.longitude) {
+        const R = 6371;
+        const dLat = (p.latitude - userLat) * Math.PI / 180;
+        const dLon = (p.longitude - userLon) * Math.PI / 180;
+
+        const a =
+          Math.sin(dLat / 2) ** 2 +
+          Math.cos(userLat * Math.PI / 180) *
+          Math.cos(p.latitude * Math.PI / 180) *
+          Math.sin(dLon / 2) ** 2;
+
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        distance = R * c;
+
+        if (distance < 5) score += 50;
+        else if (distance < 20) score += 30;
+      }
+
+      return {
+        ...p,
+        score,
+        distance_km: distance
+      };
+    });
+
+    // ============================
+    // 🔥 TRI
+    // ============================
+    const sorted = scored.sort((a, b) => b.score - a.score);
+
+    // ============================
+    // 📄 PAGINATION
+    // ============================
+    const paginated = sorted.slice(offset, offset + limit);
+
+    // ============================
+    // 📦 FORMAT FINAL
+    // ============================
+    const result = paginated.map(p => ({
+      id: p.id,
+      title: p.title,
+      price: parseFloat(p.price),
+      old_price: p.original_price,
+      discount:
+        p.original_price
+          ? Math.round(((p.original_price - p.price) / p.original_price) * 100)
+          : 0,
+      image: p.image_url,
+      location: p.location,
+      score: p.score,
+      distance: p.distance_km,
+
+      seller: {
+        name: p.seller_name,
+        avatar: p.seller_avatar
+      }
+    }));
+
+    const response = {
+      success: true,
+      page,
+      count: result.length,
+      has_more: offset + limit < sorted.length,
+      ai_flash_deals: true,
+      products: result
+    };
+
+    await redisClient.setEx(cacheKey, 300, JSON.stringify(response));
+
+    res.json(response);
+
+  } catch (error) {
+    console.error("❌ FLASH DEALS ERROR:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error"
+    });
+  }
+});
+
+
+
+
+
+// ==============================
+// GET /ai/promotions-feed — FEED PROMOTIONS GLOBAL IA
+// ==============================
+router.get('/ai/promotions-feed', async (req, res) => {
+  try {
+    const userId = req.headers.authorization ? req.userId : null;
+
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const offset = (page - 1) * limit;
+
+    const cacheKey = `ai:promotions:${userId || 'guest'}:${page}`;
+    const cached = await redisClient.get(cacheKey);
+
+    if (cached) {
+      return res.json(JSON.parse(cached));
+    }
+
+    // ============================
+    // 1️⃣ PRODUITS EN PROMOTION UNIQUEMENT
+    // ============================
+    const [products] = await db.query(`
+      SELECT 
+        p.*,
+        pr.promo_price,
+        pr.created_at AS promo_created_at,
+        pr.duration_days,
+
+        u.fullName AS seller_name,
+        u.profile_photo AS seller_avatar,
+
+        (
+          SELECT pi.absolute_url
+          FROM product_images pi
+          WHERE pi.product_id = p.id
+          LIMIT 1
+        ) AS image_url
+
+      FROM promotions pr
+      INNER JOIN products p ON p.id = pr.product_id
+      LEFT JOIN utilisateurs u ON p.seller_id = u.id
+
+      WHERE p.is_active = 1
+      AND DATE_ADD(pr.created_at, INTERVAL pr.duration_days DAY) >= NOW()
+
+      LIMIT 300
+    `);
+
+    // ============================
+    // 2️⃣ SCORING INTELLIGENT (IA STYLE TIKTOK)
+    // ============================
+    const scored = products.map(p => {
+      let score = 0;
+
+      const now = new Date();
+
+      // 🔥 PROMO PRIORITY (très important)
+      if (p.promo_price) {
+        const discount = ((p.price - p.promo_price) / p.price) * 100;
+        score += discount * 3;
+      }
+
+      // 🚀 BOOST
+      if (p.is_boosted) score += 120;
+      if (p.is_featured) score += 60;
+
+      // 📊 ENGAGEMENT
+      score += (p.likes_count || 0) * 4;
+      score += (p.views_count || 0) * 1.5;
+      score += (p.comments_count || 0) * 3;
+      score += (p.sales || 0) * 10;
+
+      // ⏱️ RÉCENCE PROMO (TRÈS IMPORTANT)
+      const promoAgeHours = (now - new Date(p.promo_created_at)) / (1000 * 60 * 60);
+
+      if (promoAgeHours < 2) score += 120;
+      else if (promoAgeHours < 6) score += 90;
+      else if (promoAgeHours < 24) score += 60;
+      else if (promoAgeHours < 72) score += 30;
+      else score += 10;
+
+      // 💰 PRIX INTELLIGENT
+      if (p.promo_price < 20) score += 40;
+      else if (p.promo_price < 100) score += 20;
+
+      // 🧠 POPULARITÉ
+      score += (p.popularity_score || 0) * 2;
+
+      return {
+        ...p,
+        score
+      };
+    });
+
+    // ============================
+    // 3️⃣ TRI IA
+    // ============================
+    const sorted = scored.sort((a, b) => b.score - a.score);
+
+    // ============================
+    // 4️⃣ PAGINATION
+    // ============================
+    const paginated = sorted.slice(offset, offset + limit);
+
+    // ============================
+    // 5️⃣ FORMAT FINAL CLEAN (FRONTEND READY)
+    // ============================
+    const result = paginated.map(p => ({
+      id: p.id,
+      title: p.title,
+
+      price: parseFloat(p.price),
+      promo_price: parseFloat(p.promo_price),
+
+      discount: p.promo_price
+        ? Math.round(((p.price - p.promo_price) / p.price) * 100)
+        : 0,
+
+      image: p.image_url,
+      location: p.location,
+
+      score: p.score,
+
+      is_promo: true,
+
+      seller: {
+        name: p.seller_name,
+        avatar: p.seller_avatar
+      }
+    }));
+
+    const response = {
+      success: true,
+      page,
+      count: result.length,
+      has_more: offset + limit < sorted.length,
+      ai_promotions: true,
+      products: result
+    };
+
+    // ============================
+    // ⚡ CACHE
+    // ============================
+    await redisClient.setEx(cacheKey, 180, JSON.stringify(response));
+
+    res.json(response);
+
+  } catch (error) {
+    console.error("❌ PROMO FEED ERROR:", error);
+    res.status(500).json({
+      success: false,
+      message: "Server error"
+    });
+  }
+});
+
+
+// ==============================
+// GET /ai/top-ventes — PRODUITS TOP VENTES (IA SIMPLE & STABLE)
+// ==============================
+router.get('/ai/top-ventes', async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const offset = (page - 1) * limit;
+
+    const cacheKey = `ai:topventes:${page}:${limit}`;
+    const cached = await redisClient.get(cacheKey);
+
+    if (cached) {
+      return res.json(JSON.parse(cached));
+    }
+
+    // ============================
+    // 1. RÉCUP PRODUITS
+    // ============================
+    const [products] = await db.query(`
+      SELECT 
+        p.*,
+        u.fullName AS seller_name,
+        u.profile_photo AS seller_avatar,
+        (
+          SELECT pi.absolute_url
+          FROM product_images pi
+          WHERE pi.product_id = p.id
+          LIMIT 1
+        ) AS image_url
+      FROM products p
+      LEFT JOIN utilisateurs u ON p.seller_id = u.id
+      WHERE p.is_active = 1
+    `);
+
+    // ============================
+    // 2. SCORING TOP VENTES
+    // ============================
+    const scored = products.map(p => {
+      let score = 0;
+
+      // 🔥 VENTES (TRÈS IMPORTANT)
+      score += (p.sales || 0) * 10;
+
+      // 🔥 BOOST
+      if (p.is_boosted) score += 50;
+
+      // ⭐ FEATURED
+      if (p.is_featured) score += 30;
+
+      // 📊 ENGAGEMENT
+      score += (p.likes_count || 0) * 2;
+      score += (p.views_count || 0) * 1;
+      score += (p.comments_count || 0) * 2;
+      score += (p.shares_count || 0) * 2;
+
+      // 🧠 POPULARITÉ
+      score += (p.popularity_score || 0) * 2;
+
+      return {
+        ...p,
+        score
+      };
+    });
+
+    // ============================
+    // 3. TRI
+    // ============================
+    const sorted = scored.sort((a, b) => b.score - a.score);
+
+    // ============================
+    // 4. PAGINATION
+    // ============================
+    const paginated = sorted.slice(offset, offset + limit);
+
+    // ============================
+    // 5. FORMAT RESPONSE
+    // ============================
+    const result = paginated.map(p => ({
+      id: p.id,
+      title: p.title,
+      price: parseFloat(p.price),
+      image: p.image_url,
+      location: p.location,
+      stock: p.stock,
+      sales: p.sales,
+      score: p.score,
+      seller: {
+        name: p.seller_name,
+        avatar: p.seller_avatar
+      }
+    }));
+
+    const response = {
+      success: true,
+      page,
+      count: result.length,
+      has_more: offset + limit < sorted.length,
+      category: "top_ventes",
+      ai_mode: true,
+      products: result
+    };
+
+    // ============================
+    // 6. CACHE
+    // ============================
+    await redisClient.setEx(cacheKey, 300, JSON.stringify(response));
+
+    return res.json(response);
+
+  } catch (error) {
+    console.error("❌ TOP VENTES ERROR:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error"
+    });
+  }
+});
+
+
+// ==============================
+// GET /ai/nearby — PRODUITS PRÈS DE VOUS (IA)
+// ==============================
+router.get('/ai/nearby', async (req, res) => {
+  try {
+    const page = parseInt(req.query.page) || 1;
+    const limit = parseInt(req.query.limit) || 20;
+    const offset = (page - 1) * limit;
+
+    const userLat = parseFloat(req.query.lat);
+    const userLon = parseFloat(req.query.lon);
+
+    if (!userLat || !userLon) {
+      return res.status(400).json({
+        success: false,
+        message: "Latitude et longitude requises"
+      });
+    }
+
+    const cacheKey = `ai:nearby:${page}:${userLat}:${userLon}`;
+    const cached = await redisClient.get(cacheKey);
+
+    if (cached) {
+      console.log("⚡ CACHE NEARBY HIT");
+      return res.json(JSON.parse(cached));
+    }
+
+    // ============================
+    // 🧠 1. PRODUITS
+    // ============================
+    const [products] = await pool.query(`
+      SELECT 
+        p.*,
+        u.fullName AS seller_name,
+        u.profile_photo AS seller_avatar,
+
+        (
+          SELECT pi.absolute_url
+          FROM product_images pi
+          WHERE pi.product_id = p.id
+          LIMIT 1
+        ) AS image_url
+
+      FROM products p
+      LEFT JOIN utilisateurs u ON p.seller_id = u.id
+      WHERE p.is_active = 1
+    `);
+
+    // ============================
+    // 🧠 2. IA + DISTANCE SCORING
+    // ============================
+    const scored = products.map(p => {
+      let score = 0;
+      let distance = null;
+
+      // 📍 DISTANCE (COEUR DU SYSTÈME)
+      if (p.latitude && p.longitude) {
+        const R = 6371;
+
+        const dLat = (p.latitude - userLat) * Math.PI / 180;
+        const dLon = (p.longitude - userLon) * Math.PI / 180;
+
+        const a =
+          Math.sin(dLat / 2) ** 2 +
+          Math.cos(userLat * Math.PI / 180) *
+          Math.cos(p.latitude * Math.PI / 180) *
+          Math.sin(dLon / 2) ** 2;
+
+        const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+        distance = R * c;
+
+        // 🎯 PRIORITÉ ULTRA PROXIMITÉ
+        if (distance < 2) score += 120;
+        else if (distance < 5) score += 100;
+        else if (distance < 10) score += 70;
+        else if (distance < 20) score += 40;
+        else score -= 20;
+      }
+
+      // ⚡ BOOST PRIORITY
+      if (p.is_boosted) score += 80;
+      if (p.is_featured) score += 40;
+
+      // 🔥 ENGAGEMENT
+      score += (p.likes_count || 0) * 3;
+      score += (p.views_count || 0) * 1.5;
+      score += (p.sales || 0) * 6;
+
+      // 💰 PRIX ATTRACTIF
+      if (p.price < 20) score += 25;
+      else if (p.price < 100) score += 10;
+
+      // 🧠 RÉCENCE (IMPORTANT)
+      const hours = (Date.now() - new Date(p.created_at)) / (1000 * 60 * 60);
+      if (hours < 6) score += 50;
+      else if (hours < 24) score += 30;
+      else if (hours < 72) score += 10;
+
+      // 📊 POPULARITÉ
+      score += (p.popularity_score || 0) * 2;
+
+      return {
+        ...p,
+        score,
+        distance_km: distance
+      };
+    });
+
+    // ============================
+    // 🔥 TRI IA FINAL
+    // ============================
+    const sorted = scored.sort((a, b) => b.score - a.score);
+
+    const paginated = sorted.slice(offset, offset + limit);
+
+    // ============================
+    // 📦 RESPONSE CLEAN
+    // ============================
+    const result = paginated.map(p => ({
+      id: p.id,
+      title: p.title,
+      price: parseFloat(p.price),
+      image: p.image_url,
+      location: p.location,
+
+      distance: p.distance_km,
+
+      score: p.score,
+
+      seller: {
+        name: p.seller_name,
+        avatar: p.seller_avatar
+      }
+    }));
+
+    const response = {
+      success: true,
+      page,
+      count: result.length,
+      has_more: offset + limit < sorted.length,
+      ai_nearby: true,
+      user_location: {
+        lat: userLat,
+        lon: userLon
+      },
+      products: result
+    };
+
+    await redisClient.setEx(cacheKey, 300, JSON.stringify(response));
+
+    return res.json(response);
+
+  } catch (error) {
+    console.error("❌ NEARBY AI ERROR:", error);
+    return res.status(500).json({
+      success: false,
+      message: "Server error"
+    });
+  }
+});
+
+
+
+
 // ----------------------------
 // GET /products — FEED PUBLIC
 // ----------------------------
@@ -524,6 +2509,9 @@ router.get('/', async (req, res) => {
 // ----------------------------
 // POST /products — Création produit avec Cloudinary et boost auto pour Premium
 // ----------------------------
+// ----------------------------
+// POST /products — Création produit avec Cloudinary et boost auto pour Premium
+// ----------------------------
 router.post('/', authMiddleware, (req, res) => {
   upload(req, res, async (err) => {
     let connection;
@@ -570,25 +2558,43 @@ router.post('/', authMiddleware, (req, res) => {
         comments_count: 0,
         shares_count: 0,
         views_count: 0,
-        is_boosted: 0 // par défaut
+        is_boosted: 0
       };
 
       const [productResult] = await connection.query(
         'INSERT INTO products SET ?',
         [productData]
       );
+
       const productId = productResult.insertId;
 
       // ------------------
-      // Upload images Cloudinary
+      // Upload images Cloudinary AVEC WATERMARK
       // ------------------
       let uploadedImages = [];
+
       if (req.files?.length > 0) {
         for (const file of req.files) {
+
           const uploadResult = await uploadToCloudinary(file.buffer, {
             folder: 'shopnet',
             resource_type: 'image',
-            public_id: `product_${Date.now()}_${Math.floor(Math.random() * 10000)}`
+            public_id: `product_${Date.now()}_${Math.floor(Math.random() * 10000)}`,
+
+            // 💧 WATERMARK SHOPNET
+            transformation: [
+              {
+                width: 1200,
+                crop: "limit",
+                quality: "auto"
+              },
+              {
+                overlay: "text:Arial_60:SHOPNET%20%E2%80%A2%20Verified",
+                gravity: "center",
+                opacity: 40,
+                color: "white"
+              }
+            ]
           });
 
           await connection.query(
@@ -612,10 +2618,9 @@ router.post('/', authMiddleware, (req, res) => {
       );
 
       if (premiumRows.length > 0) {
-        // Auto-boost produit Premium
         const boostId = `BOOST_${Date.now()}_${Math.floor(Math.random()*10000)}`;
         const now = new Date();
-        const endDate = new Date(now.getTime() + 24*60*60*1000); // boost 24h
+        const endDate = new Date(now.getTime() + 24*60*60*1000);
 
         await connection.query(
           `INSERT INTO product_boosts
@@ -645,12 +2650,10 @@ router.post('/', authMiddleware, (req, res) => {
         await connection.rollback();
         connection.release();
       }
-      console.error('Erreur création produit:', error.message);
       res.status(400).json({ success: false, error: error.message });
     }
   });
 });
-
 
 // ===============================================
 // ✅ DISCOVER - PAGE BOUTIQUE PUBLIQUE PAGINÉE  CETTE PAGE CE POUR LES DONNER DE BOUTIQUE COTER ACHETEUR
@@ -1396,8 +3399,6 @@ router.get('/:id/similar', authMiddleware, async (req, res) => {
     });
   }
 });
-
-
 
 module.exports = router;
 

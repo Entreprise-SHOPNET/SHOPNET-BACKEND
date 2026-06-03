@@ -1,4 +1,5 @@
 
+
 const fs = require('fs');
 require('dotenv').config();
 const express = require('express');
@@ -168,19 +169,131 @@ async function sendRandomNotifications() {
 }
 
 function scheduleNextNotification() {
-  // Délai aléatoire entre 10 et 15 minutes
-  const delay = (Math.floor(Math.random() * (15 - 10 + 1)) + 10) * 60 * 1000;
+  const delay = 2 * 60 * 60 * 1000;
 
-  setTimeout(async () => {
-    await sendRandomNotifications();
-    scheduleNextNotification(); // reprogramme la prochaine notification
+  console.log("⏰ Notifications automatiques ACTIVÉES");
+
+  setInterval(async () => {
+    try {
+      await sendRandomNotifications();
+    } catch (err) {
+      console.log("❌ AUTO NOTIF ERROR:", err.message);
+    }
   }, delay);
 }
-
 setTimeout(() => {
-  scheduleNextNotification();
   console.log('🔔 Notifications automatiques activées');
+  scheduleNextNotification();
 }, 5000);
+
+
+
+// ======================================================
+// 🛒 CART ABANDONED AUTO NOTIFICATION (CRON)
+// ======================================================
+
+function startCartAbandonedCron() {
+  console.log("⏰ Cart Abandoned CRON activé (1h)");
+
+  setInterval(async () => {
+    try {
+      const [rows] = await db.query(`
+        SELECT 
+          c.user_id,
+          c.product_id,
+          c.updated_at,
+          f.fcm_token
+        FROM carts c
+        JOIN fcm_tokens f ON f.user_id = c.user_id
+        WHERE c.updated_at BETWEEN NOW() - INTERVAL 24 HOUR AND NOW() - INTERVAL 2 HOUR
+      `);
+
+      const sent = new Set();
+
+      for (const item of rows) {
+        try {
+          if (!item.fcm_token) continue;
+
+          const key = `${item.user_id}-${item.product_id}`;
+          if (sent.has(key)) continue;
+          sent.add(key);
+
+          const [productRows] = await db.query(
+            'SELECT title FROM products WHERE id = ?',
+            [item.product_id]
+          );
+
+          const title = productRows[0]?.title || 'ce produit';
+
+          const [imageRows] = await db.query(
+            'SELECT image_path FROM product_images WHERE product_id = ? LIMIT 1',
+            [item.product_id]
+          );
+
+          let imageUrl = '';
+
+          if (imageRows.length > 0) {
+            const CLOUDINARY_BASE = `https://res.cloudinary.com/${process.env.CLOUD_NAME}/image/upload/`;
+
+            imageUrl = imageRows[0].image_path.startsWith("http")
+              ? imageRows[0].image_path
+              : `${CLOUDINARY_BASE}${imageRows[0].image_path}`;
+          }
+
+          const hours = Math.floor(
+            (Date.now() - new Date(item.updated_at)) / (1000 * 60 * 60)
+          );
+
+          let notifTitle = '';
+          let message = '';
+
+          if (hours >= 2 && hours < 6) {
+            notifTitle = '🛒 Ton panier t’attend';
+            message = `Tu as laissé "${title}" dans ton panier 🔥`;
+          } else if (hours >= 6 && hours < 12) {
+            notifTitle = '⏳ Toujours disponible';
+            message = `"${title}" est encore dans ton panier 💡`;
+          } else {
+            notifTitle = '🔥 Dernier rappel';
+            message = `"${title}" risque de disparaître 🛒`;
+          }
+
+          await sendPushNotification(
+            item.fcm_token,
+            notifTitle,
+            message,
+            {
+              type: 'cart_abandoned',
+              productId: item.product_id,
+              image: imageUrl
+            }
+          );
+
+        } catch (err) {
+          console.log("❌ item error:", err.message);
+        }
+      }
+
+      console.log(`🛒 Cart CRON exécuté: ${rows.length} items`);
+
+    } catch (err) {
+      console.log("❌ Cart cron error:", err.message);
+    }
+
+  }, 60 * 60 * 1000);
+}
+
+// 🚀 LANCEMENT UNIQUE AU DÉMARRAGE
+setTimeout(() => {
+  startCartAbandonedCron();
+}, 5000);
+
+
+
+
+
+
+
 
 // 🔹 Middlewares, sécurité, uploads (inchangés)
 app.use(helmet());
@@ -246,20 +359,170 @@ app.use('/uploads', express.static(UPLOADS_DIR, {
 }));
 
 const db = require('./db');
-const errorHandler = require('./middlewares/errorHandler');
-
 app.use((req, res, next) => {
   req.db = db;
-  req.upload = upload;
-  req.io = io;
-  req.notifyUser = app.get('notifyUser');
-  req.notifyAll = app.get('notifyAll');
   next();
 });
+const errorHandler = require('./middlewares/errorHandler');
+ const sendPushNotification = require('./utils/sendPushNotification');
+
+// ======================================================
+// 🔥 AUTO TREND PUSH (TOUTES LES 30 MINUTES)
+// ======================================================
+// ======================================================
+// 🔥 AUTO TREND PUSH (PROPRE + STABLE)
+// ======================================================
+
+const sendTrendPush = async () => {
+  try {
+    console.log("⏱ [TREND] Début récupération données...");
+
+    // 🔥 1. Produits populaires
+    const [products] = await db.query(`
+      SELECT 
+        p.id,
+        p.title,
+        COUNT(DISTINCT l.id) AS likes,
+        COUNT(DISTINCT v.id) AS views,
+        COUNT(DISTINCT c.user_id) AS carts
+      FROM products p
+      LEFT JOIN product_likes l ON l.product_id = p.id
+      LEFT JOIN product_views v ON v.product_id = p.id
+      LEFT JOIN carts c ON c.product_id = p.id
+      GROUP BY p.id
+      ORDER BY (
+        COUNT(DISTINCT l.id)*3 + 
+        COUNT(DISTINCT v.id) + 
+        COUNT(DISTINCT c.user_id)*2
+      ) DESC
+      LIMIT 20
+    `);
+
+    if (!products || products.length === 0) {
+      console.log("⚠️ Aucun produit trend trouvé");
+      return;
+    }
+
+    console.log(`📦 Produits trouvés: ${products.length}`);
+
+    // 👥 2. Utilisateurs avec token
+    const [users] = await db.query(`
+      SELECT user_id, fcm_token 
+      FROM fcm_tokens 
+      WHERE fcm_token IS NOT NULL
+    `);
+
+    if (!users || users.length === 0) {
+      console.log("⚠️ Aucun utilisateur avec FCM token");
+      return;
+    }
+
+    console.log(`👥 Utilisateurs trouvés: ${users.length}`);
+
+    let success = 0;
+    let failed = 0;
+
+    // 🎯 Titres dynamiques
+    const titles = [
+      "🔥 Ça explose sur SHOPNET !",
+      "🚀 Tout le monde regarde ça",
+      "💥 Produit en forte demande",
+      "🛒 Ne rate pas cette offre",
+      "🔥 Tendance actuelle"
+    ];
+
+    const bodies = [
+      (title) => `${title} attire beaucoup d’acheteurs 👀`,
+      (title) => `${title} est très demandé en ce moment 🔥`,
+      (title) => `Les utilisateurs consultent ${title} en ce moment`,
+      (title) => `${title} fait partie des plus populaires`,
+      (title) => `Découvre pourquoi ${title} est tendance 👀`
+    ];
+
+    // 🔁 3. Envoi notifications
+    for (let i = 0; i < users.length; i++) {
+      const user = users[i];
+      const product = products[i % products.length];
+
+      if (!product) continue;
+
+      try {
+        // 🖼 IMAGE
+        const [imageRows] = await db.query(
+          'SELECT image_path FROM product_images WHERE product_id = ? LIMIT 1',
+          [product.id]
+        );
+
+        let imageUrl = '';
+
+        if (imageRows.length > 0) {
+          const CLOUDINARY_BASE = `https://res.cloudinary.com/${process.env.CLOUD_NAME}/image/upload/`;
+
+          imageUrl = imageRows[0].image_path.startsWith('http')
+            ? imageRows[0].image_path
+            : CLOUDINARY_BASE + imageRows[0].image_path;
+        }
+
+        // 🎲 message random
+        const randomTitle = titles[Math.floor(Math.random() * titles.length)];
+        const randomBodyFunc = bodies[Math.floor(Math.random() * bodies.length)];
+        const randomBody = randomBodyFunc(product.title);
+
+        // 🔥 ENVOI PUSH
+        await sendPushNotification(
+          user.fcm_token,
+          randomTitle,
+          randomBody,
+          {
+            productId: String(product.id),
+            type: 'trend',
+            image: imageUrl
+          }
+        );
+
+        success++;
+
+      } catch (err) {
+        failed++;
+        console.log(`❌ Push error user ${user.user_id}:`, err.message);
+      }
+    }
+
+    console.log(`✅ TREND terminé: ${success} succès / ${failed} échecs`);
+
+  } catch (error) {
+    console.error('❌ TREND GLOBAL ERROR:', error.message);
+  }
+};
+
+
+
+// ==========================================
+// 🚀 LANCEMENT AUTOMATIQUE
+// ==========================================
+
+const startTrendPush = async () => {
+  try {
+    console.log("🚀 Lancement TREND PUSH...");
+    await sendTrendPush();
+  } catch (err) {
+    console.error("❌ START TREND ERROR:", err.message);
+  }
+};
+
+// 🔹 1. Au démarrage
+setTimeout(() => {
+  startTrendPush();
+}, 5000);
+
+// 🔹 2. Toutes les 1 heure
+setInterval(() => {
+  startTrendPush();
+}, 60 * 60 * 1000);
+
+
 
 // … tes routes restent inchangées
-
-
 // Routes
 const productsRoutes = require('./Route/products');
 const authConnexionRoutes = require('./Route/Connexion');
@@ -364,6 +627,19 @@ process.on('SIGTERM', () => {
     process.exit(0);
   });
 });
+
+
+
+const cartAbandonedCron = require("./utils/cartAbandonedCron");
+// 🚀 Lancement CRON au démarrage
+console.log("🚀 CRON panier abandonné démarré...");
+cartAbandonedCron();
+
+// ⏰ Exécution automatique toutes les 5 heures
+setInterval(() => {
+  console.log("⏰ CRON 5h - panier abandonné...");
+  cartAbandonedCron();
+}, 5 * 60 * 60 * 1000);
 
 module.exports = server;
 

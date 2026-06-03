@@ -1,6 +1,5 @@
 
 
-
 // Route/vendeur/promotions.js
 const express = require('express');
 const router = express.Router();
@@ -8,12 +7,8 @@ const router = express.Router();
 const db = require('../../db');
 const authMiddleware = require('../../middlewares/authMiddleware');
 const sendPushNotification = require('../../utils/sendPushNotification');
-const cloudinary = require('cloudinary').v2;
 
-// 🔐 Sécurisation
 router.use(authMiddleware);
-
-
 
 // -------------------------------------------------------------
 // 🔥 ROUTE POST : Créer une promotion + Notifications FCM
@@ -52,10 +47,26 @@ router.post('/', async (req, res) => {
 
     const message = `${productTitle} est maintenant à ${promoPrice}$ pendant ${duration} jours !`;
 
+    // ---------------------------------------------------------
+    // 🖼️ 2️⃣ RÉCUPÉRER IMAGE PRODUIT
+    // ---------------------------------------------------------
+    const [images] = await db.query(
+      `SELECT image_path FROM product_images WHERE product_id = ? LIMIT 1`,
+      [productId]
+    );
 
+    let imageUrl = null;
+
+    if (images.length > 0) {
+      const CLOUDINARY_BASE = `https://res.cloudinary.com/${process.env.CLOUD_NAME}/image/upload/`;
+
+      imageUrl = images[0].image_path.startsWith("http")
+        ? images[0].image_path
+        : `${CLOUDINARY_BASE}${images[0].image_path}`;
+    }
 
     // ---------------------------------------------------------
-    // 🔔 2️⃣ NOTIFICATION FOLLOWERS
+    // 🔔 3️⃣ NOTIFICATION FOLLOWERS
     // ---------------------------------------------------------
     if (notify_followers) {
       const [followers] = await db.query(
@@ -73,7 +84,10 @@ router.post('/', async (req, res) => {
               f.fcm_token,
               "🔥 Nouvelle Promotion!",
               message,
-              { promotionId }
+              {
+                promotionId,
+                image: imageUrl
+              }
             );
           } catch (err) {
             console.error("FCM follower error:", err.message);
@@ -82,10 +96,8 @@ router.post('/', async (req, res) => {
       }
     }
 
-
-
     // ---------------------------------------------------------
-    // 🔔 3️⃣ NOTIFICATION TOUS LES USERS
+    // 🔔 4️⃣ NOTIFICATION TOUS LES USERS
     // ---------------------------------------------------------
     if (notify_all_users) {
       const [users] = await db.query(
@@ -102,7 +114,10 @@ router.post('/', async (req, res) => {
               u.fcm_token,
               "📢 Promotion disponible !",
               message,
-              { promotionId }
+              {
+                promotionId,
+                image: imageUrl
+              }
             );
           } catch (err) {
             console.error("FCM all users error:", err.message);
@@ -111,11 +126,6 @@ router.post('/', async (req, res) => {
       }
     }
 
-
-
-    // ---------------------------------------------------------
-    // ✅ RESPONSE
-    // ---------------------------------------------------------
     return res.json({
       success: true,
       message: "Promotion créée avec succès",
@@ -132,10 +142,8 @@ router.post('/', async (req, res) => {
   }
 });
 
-
-
 // -------------------------------------------------------------
-// 🔥 ROUTE GET : récupérer les promotions + images Cloudinary
+// 🔥 ROUTE GET
 // -------------------------------------------------------------
 router.get('/', async (req, res) => {
   try {
