@@ -448,50 +448,50 @@ const sendTrendPush = async () => {
       "📦 Nouveau listing"
     ];
 
-    // 🔥 MESSAGES TREND (10 longs)
+    // 🔥 MESSAGES TREND (prix UNE seule fois après titre)
     const trendBodies = [
-      (p) => `🔥 "${p.title}" (${p.price} USD) est actuellement très demandé sur SHOPNET (${p.price} USD). Les utilisateurs le consultent massivement (${p.price} USD). Ouvrez pour voir les détails complets et agir rapidement.`,
+      (p) => `🔥 "${p.title}" est très demandé sur SHOPNET à ${p.price} USD. Les utilisateurs le consultent massivement. Ouvrez pour voir les détails et agir rapidement.`,
 
-      (p) => `👀 "${p.title}" (${p.price} USD) attire énormément d’attention (${p.price} USD). Plusieurs acheteurs sont déjà dessus (${p.price} USD). Découvrez pourquoi ce produit est tendance.`,
+      (p) => `👀 "${p.title}" attire énormément d’attention à ${p.price} USD. Plusieurs acheteurs s’y intéressent déjà. Découvrez pourquoi ce produit est tendance.`,
 
-      (p) => `📈 "${p.title}" (${p.price} USD) est en forte croissance (${p.price} USD). Produit très populaire actuellement (${p.price} USD). Cliquez pour voir les informations complètes.`,
+      (p) => `📈 "${p.title}" est en forte croissance à ${p.price} USD. Produit très populaire actuellement. Cliquez pour voir les informations complètes.`,
 
-      (p) => `🛒 "${p.title}" (${p.price} USD) est fortement recherché sur SHOPNET (${p.price} USD). Les utilisateurs montrent un grand intérêt (${p.price} USD).`,
+      (p) => `🛒 "${p.title}" est fortement recherché sur SHOPNET à ${p.price} USD. Les utilisateurs montrent un grand intérêt.`,
 
-      (p) => `💥 "${p.title}" (${p.price} USD) connaît une forte demande (${p.price} USD). Ce produit est en train de devenir viral (${p.price} USD).`,
+      (p) => `💥 "${p.title}" connaît une forte demande à ${p.price} USD. Ce produit est en train de devenir viral.`,
 
-      (p) => `⭐ "${p.title}" (${p.price} USD) est un produit recommandé (${p.price} USD). Beaucoup d’utilisateurs le consultent actuellement (${p.price} USD).`,
+      (p) => `⭐ "${p.title}" est un produit recommandé à ${p.price} USD. Beaucoup d’utilisateurs le consultent actuellement.`,
 
-      (p) => `🚀 "${p.title}" (${p.price} USD) est en pleine activité (${p.price} USD). Découvrez pourquoi il est si populaire (${p.price} USD).`,
+      (p) => `🚀 "${p.title}" est en pleine activité à ${p.price} USD. Découvrez pourquoi il est si populaire.`,
 
-      (p) => `💎 "${p.title}" (${p.price} USD) fait partie des meilleures ventes (${p.price} USD). Produit très performant sur SHOPNET (${p.price} USD).`,
+      (p) => `💎 "${p.title}" fait partie des meilleures ventes à ${p.price} USD. Produit très performant sur SHOPNET.`,
 
-      (p) => `🔥 "${p.title}" (${p.price} USD) est en tendance forte (${p.price} USD). Les acheteurs se précipitent dessus (${p.price} USD).`,
+      (p) => `🔥 "${p.title}" est en tendance forte à ${p.price} USD. Les acheteurs se précipitent dessus.`,
 
-      (p) => `📢 "${p.title}" (${p.price} USD) est actuellement très actif (${p.price} USD). Cliquez pour découvrir tous les détails (${p.price} USD).`
+      (p) => `📢 "${p.title}" est actuellement très actif à ${p.price} USD. Cliquez pour découvrir tous les détails.`
     ];
 
-    // 🆕 MESSAGES NEW (10 longs)
+    // 🆕 MESSAGES NEW (prix UNE seule fois après titre)
     const newBodies = [
-      (p) => `🆕 Nouveau produit : "${p.title}" (${p.price} USD) vient d’être ajouté sur SHOPNET (${p.price} USD). Soyez parmi les premiers à le découvrir (${p.price} USD).`,
+      (p) => `🆕 "${p.title}" est le dernier nouveau produit à ${p.price} USD sur SHOPNET. Soyez parmi les premiers à le découvrir.`,
 
-      (p) => `✨ "${p.title}" (${p.price} USD) est une toute nouvelle arrivée (${p.price} USD). Découvrez ce produit avant les autres (${p.price} USD).`,
+      (p) => `✨ "${p.title}" vient d’être ajouté à ${p.price} USD. Découvrez ce nouveau produit avant les autres.`,
 
-      (p) => `🚀 Nouveau sur SHOPNET : "${p.title}" (${p.price} USD) est maintenant disponible (${p.price} USD). Explorez-le immédiatement (${p.price} USD).`,
+      (p) => `🚀 Nouveau sur SHOPNET : "${p.title}" est disponible à ${p.price} USD. Explorez-le immédiatement.`,
 
-      (p) => `📢 "${p.title}" (${p.price} USD) vient d’être publié (${p.price} USD). Nouvelle opportunité sur la plateforme (${p.price} USD).`,
+      (p) => `📢 "${p.title}" vient d’être publié à ${p.price} USD. Nouvelle opportunité sur la plateforme.`,
 
-      (p) => `⭐ Exclusivité : "${p.title}" (${p.price} USD) est tout nouveau (${p.price} USD). Soyez parmi les premiers utilisateurs (${p.price} USD).`,
+      (p) => `⭐ "${p.title}" est tout nouveau à ${p.price} USD. Soyez parmi les premiers utilisateurs.`,
 
-      (p) => `💎 Nouveau produit : "${p.title}" (${p.price} USD) est fraîchement ajouté (${p.price} USD). Découvrez-le maintenant (${p.price} USD).`,
+      (p) => `💎 "${p.title}" est fraîchement ajouté à ${p.price} USD. Découvrez-le maintenant.`,
 
-      (p) => `🔥 "${p.title}" (${p.price} USD) vient d’être mis en ligne (${p.price} USD). Ouvrez pour voir les détails (${p.price} USD).`,
+      (p) => `🔥 "${p.title}" vient d’être mis en ligne à ${p.price} USD. Ouvrez pour voir les détails.`,
 
-      (p) => `📦 "${p.title}" (${p.price} USD) est disponible dès maintenant (${p.price} USD). Nouvelle opportunité SHOPNET (${p.price} USD).`,
+      (p) => `📦 "${p.title}" est disponible dès maintenant à ${p.price} USD. Nouvelle opportunité SHOPNET.`,
 
-      (p) => `🚀 Nouvelle arrivée : "${p.title}" (${p.price} USD) est en ligne (${p.price} USD). Découvrez-le rapidement (${p.price} USD).`,
+      (p) => `🚀 "${p.title}" est en ligne à ${p.price} USD. Découvrez-le rapidement.`,
 
-      (p) => `🆕 Dernière nouveauté : "${p.title}" (${p.price} USD) vient d’être ajouté (${p.price} USD). Cliquez pour explorer (${p.price} USD).`
+      (p) => `🆕 "${p.title}" vient d’être ajouté à ${p.price} USD. Cliquez pour explorer.`
     ];
 
     // 🔁 LOOP USERS
