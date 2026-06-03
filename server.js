@@ -558,7 +558,7 @@ const manualPaymentRoutes = require('./Route/Paiement/manual-payment'); // Syste
 const boutiquePremiumRoutes = require('./Route/BoutiquePremium/BoutiquePremium');
 const analyticsRoutes = require('./Route/BoutiquePremium/Analytics');  // Analytics Boutique Premium
 const commandesAdminRouter = require('./Route/admin/CommandesPayeAdmin');  //Route pour les Tableau de bord de commandePaye
-
+const assistantIaRoutes = require("./ia_statique/Routes/AssistantIA");
 
 
 app.use('/api/products', productsRoutes);       // d'abord le routeur principal des produits
@@ -597,7 +597,7 @@ app.use('/api/manual-payment', manualPaymentRoutes); // Systeme de paiement
 app.use('/api/boutique/premium', boutiquePremiumRoutes);
 app.use('/api/analytics', analyticsRoutes);    // Analytics Boutique Premium
 app.use('/admin', commandesAdminRouter);   //Route pour les Tableau de bord de commandePaye
-
+app.use("/assistant-ia", assistantIaRoutes);
 
 
 
