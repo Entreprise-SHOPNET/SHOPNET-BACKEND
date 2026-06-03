@@ -187,11 +187,9 @@ setTimeout(() => {
 }, 5000);
 
 
-
 // ======================================================
 // 🛒 CART ABANDONED AUTO NOTIFICATION (CRON)
 // ======================================================
-
 function startCartAbandonedCron() {
   console.log("⏰ Cart Abandoned CRON activé (1h)");
 
@@ -218,13 +216,16 @@ function startCartAbandonedCron() {
           if (sent.has(key)) continue;
           sent.add(key);
 
+          // 🔥 PRODUCT (title + price)
           const [productRows] = await db.query(
-            'SELECT title FROM products WHERE id = ?',
+            'SELECT title, price FROM products WHERE id = ?',
             [item.product_id]
           );
 
           const title = productRows[0]?.title || 'ce produit';
+          const price = productRows[0]?.price || 0;
 
+          // 🖼 IMAGE
           const [imageRows] = await db.query(
             'SELECT image_path FROM product_images WHERE product_id = ? LIMIT 1',
             [item.product_id]
@@ -247,15 +248,31 @@ function startCartAbandonedCron() {
           let notifTitle = '';
           let message = '';
 
+          // 🟢 2h - 6h
           if (hours >= 2 && hours < 6) {
             notifTitle = '🛒 Ton panier t’attend';
-            message = `Tu as laissé "${title}" dans ton panier 🔥`;
-          } else if (hours >= 6 && hours < 12) {
+
+            message = `Tu as laissé "${title}" à ${price} USD dans ton panier 🔥. 
+Il est encore disponible et d’autres utilisateurs peuvent être intéressés. 
+Reviens maintenant pour finaliser ton achat en toute sécurité.`;
+          }
+
+          // 🟡 6h - 12h
+          else if (hours >= 6 && hours < 12) {
             notifTitle = '⏳ Toujours disponible';
-            message = `"${title}" est encore dans ton panier 💡`;
-          } else {
-            notifTitle = '🔥 Dernier rappel';
-            message = `"${title}" risque de disparaître 🛒`;
+
+            message = `"${title}" à ${price} USD est toujours dans ton panier 💡. 
+Ce produit attire de l’attention en ce moment. 
+Clique pour revenir et terminer ton achat rapidement.`;
+          }
+
+          // 🔴 12h+
+          else {
+            notifTitle = '🔥 Dernière chance';
+
+            message = `"${title}" à ${price} USD est toujours dans ton panier 🛒. 
+Tu risques de le perdre si tu attends encore. 
+Finalise ta commande maintenant avant qu’un autre acheteur ne le prenne.`;
           }
 
           await sendPushNotification(
@@ -287,9 +304,6 @@ function startCartAbandonedCron() {
 setTimeout(() => {
   startCartAbandonedCron();
 }, 5000);
-
-
-
 
 
 
