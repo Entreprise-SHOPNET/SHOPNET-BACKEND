@@ -355,6 +355,9 @@ if (!products || products.length === 0) {
 // ======================
 // IA - AUTO CREATION PRODUIT SHOPNET
 // ======================
+// ======================
+// IA - AUTO CREATION PRODUIT SHOPNET (CATÉGORIES FIXES)
+// ======================
 router.post("/generate-product", async (req, res) => {
   try {
     const { prompt } = req.body;
@@ -379,27 +382,46 @@ router.post("/generate-product", async (req, res) => {
 Tu es SHOPNET AI PRODUCT CREATOR.
 
 Ton rôle :
-Transformer une idée utilisateur en fiche produit e-commerce complète.
-
-IMPORTANT :
+Transformer une idée utilisateur en fiche produit e-commerce.
+Un fichier correct pour le profesionel pour un humain
+IMPORTANT RULES :
 - Retourne UNIQUEMENT du JSON valide
 - Aucun texte
 - Aucun commentaire
+
+CATÉGORIES AUTORISÉES (OBLIGATOIRE) :
+- mode
+- home
+- books
+- auto
+- electronics
+- Tech
+- fashion
+- Tendance
+- beauty
+- Beauté
+- Maison
+- sports
+
+RÈGLES IMPORTANTES :
+- Tu DOIS choisir UNE catégorie EXACTEMENT dans la liste ci-dessus
+- Ne jamais inventer une nouvelle catégorie
+- Si incertain → choisir "Tendance"
 
 FORMAT OBLIGATOIRE :
 {
   "title": "string",
   "description": "string",
-  "category": "string",
+  "category": "string (must be from allowed list)",
   "price": number,
   "tags": ["tag1", "tag2", "tag3"],
   "confidence": number
 }
 
-RÈGLES :
-- prix réaliste
+STYLE :
+- e-commerce professionnel
 - description courte et vendeuse
-- tags SEO utiles
+- prix réaliste
             `
           },
           {
@@ -407,7 +429,7 @@ RÈGLES :
             content: prompt
           }
         ],
-        temperature: 0.4
+        temperature: 0.3
       },
       {
         headers: {
@@ -428,6 +450,27 @@ RÈGLES :
         .trim();
 
       product = JSON.parse(cleaned);
+
+      // 🔥 VALIDATION BACKEND (SECURITÉ FINALE)
+      const allowedCategories = [
+        "mode",
+        "home",
+        "books",
+        "auto",
+        "electronics",
+        "Tech",
+        "fashion",
+        "Tendance",
+        "beauty",
+        "Beauté",
+        "Maison",
+        "sports"
+      ];
+
+      if (!allowedCategories.includes(product.category)) {
+        product.category = "Tendance";
+      }
+
     } catch (err) {
       return res.status(500).json({
         success: false,
@@ -450,13 +493,6 @@ RÈGLES :
     });
   }
 });
-
-
-
-
-
-
-
 
 
 
