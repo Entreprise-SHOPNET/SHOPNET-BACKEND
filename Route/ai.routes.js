@@ -65,6 +65,14 @@ router.get("/description", async (req, res) => {
 
 
 
+
+
+
+
+
+
+
+
 // ======================
 // IA GROQ - ASSISTANT SHOPNET (VENDEUR + ACHETEUR)
 // ======================
