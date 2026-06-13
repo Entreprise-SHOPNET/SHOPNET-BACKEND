@@ -144,4 +144,126 @@ RÈGLES :
   }
 });
 
+
+
+
+
+
+// ======================
+// IA GROQ - SEARCH INTELLIGENTE SHOPNET
+// ======================
+router.post("/search", async (req, res) => {
+  try {
+    console.log("========== AI SEARCH HIT ==========");
+
+    const query = req.body?.query;
+
+    console.log("QUERY =>", query);
+
+    if (!query) {
+      return res.status(400).json({
+        success: false,
+        message: "query est obligatoire"
+      });
+    }
+
+    console.log("🚀 ENVOI VERS GROQ...");
+
+    // 1. EXTRACTION DES MOTS-CLÉS AVEC GROQ
+    const groqResponse = await axios.post(
+      "https://api.groq.com/openai/v1/chat/completions",
+      {
+        model: "llama-3.1-8b-instant",
+        messages: [
+          {
+            role: "system",
+            content: `
+Tu es un moteur de recherche e-commerce.
+
+Ton rôle :
+- Transformer une recherche utilisateur en mots-clés précis
+- Retourner UNIQUEMENT un JSON valide
+
+Format obligatoire :
+{
+  "keywords": ["mot1", "mot2", "mot3"]
+}
+
+Règles :
+- pas de phrase
+- pas d'explication
+- seulement JSON
+            `
+          },
+          {
+            role: "user",
+            content: query
+          }
+        ],
+        temperature: 0.2
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+          "Content-Type": "application/json"
+        }
+      }
+    );
+
+    const content = groqResponse.data.choices?.[0]?.message?.content;
+
+    console.log("🔥 GROQ RAW =>", content);
+
+    let keywords = [];
+
+    try {
+      const parsed = JSON.parse(content);
+      keywords = parsed.keywords || [];
+    } catch (e) {
+      console.log("❌ JSON PARSE ERROR =>", e.message);
+      keywords = query.split(" ");
+    }
+
+    console.log("🔑 KEYWORDS =>", keywords);
+
+    // 2. RECHERCHE MYSQL FULLTEXT
+    const db = require("../db");
+
+    const searchQuery = keywords.map(k => `+${k}`).join(" ");
+
+    console.log("SQL SEARCH =>", searchQuery);
+
+    const [products] = await db.query(`
+      SELECT *
+      FROM products
+      WHERE MATCH(title, description, category)
+      AGAINST (? IN BOOLEAN MODE)
+      LIMIT 50
+    `, [searchQuery]);
+
+    console.log("📦 PRODUCTS FOUND =>", products.length);
+
+    return res.json({
+      success: true,
+      query,
+      keywords,
+      count: products.length,
+      products
+    });
+
+  } catch (error) {
+    console.log("❌ SEARCH ERROR FULL =>", error.response?.data || error.message);
+
+    return res.status(500).json({
+      success: false,
+      error: "search error"
+    });
+  }
+});
+
+
+
+
+
+
 module.exports = router;
