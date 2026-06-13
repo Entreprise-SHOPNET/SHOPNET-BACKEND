@@ -146,11 +146,8 @@ RÈGLES :
 
 
 
-
-
-
 // ======================
-// IA GROQ - SEARCH INTELLIGENTE SHOPNET
+// IA GROQ - SEARCH INTELLIGENTE SHOPNET (PRO)
 // ======================
 router.post("/search", async (req, res) => {
   try {
@@ -169,7 +166,9 @@ router.post("/search", async (req, res) => {
 
     console.log("🚀 ENVOI VERS GROQ...");
 
-    // 1. EXTRACTION DES MOTS-CLÉS AVEC GROQ
+    // ======================
+    // 1. IA INTELLIGENTE (PROMPT OPTIMISÉ)
+    // ======================
     const groqResponse = await axios.post(
       "https://api.groq.com/openai/v1/chat/completions",
       {
@@ -178,21 +177,32 @@ router.post("/search", async (req, res) => {
           {
             role: "system",
             content: `
-Tu es un moteur de recherche e-commerce.
+Tu es SHOPNET AI SEARCH ENGINE, un moteur de recherche e-commerce ultra intelligent.
 
-Ton rôle :
-- Transformer une recherche utilisateur en mots-clés précis
-- Retourner UNIQUEMENT un JSON valide
+TON OBJECTIF :
+Comprendre l'intention réelle de l'utilisateur et générer des mots-clés utiles pour trouver des produits.
 
-Format obligatoire :
+RÈGLES IMPORTANTES :
+- Retourne UNIQUEMENT du JSON valide
+- Aucun texte, aucune explication
+- Ajoute des synonymes et intentions
+- Ajoute des caractéristiques produits possibles
+
+EXEMPLES :
+
+"téléphone batterie longue durée"
+→ ["téléphone", "batterie", "6000mAh", "autonomie", "longue durée"]
+
+"iphone pas cher"
+→ ["iphone", "apple", "budget", "pas cher", "occasion"]
+
+"ordinateur gaming puissant"
+→ ["ordinateur", "gaming", "RTX", "puissant", "ram", "carte graphique"]
+
+FORMAT OBLIGATOIRE :
 {
   "keywords": ["mot1", "mot2", "mot3"]
 }
-
-Règles :
-- pas de phrase
-- pas d'explication
-- seulement JSON
             `
           },
           {
@@ -200,7 +210,7 @@ Règles :
             content: query
           }
         ],
-        temperature: 0.2
+        temperature: 0.3
       },
       {
         headers: {
@@ -214,10 +224,18 @@ Règles :
 
     console.log("🔥 GROQ RAW =>", content);
 
+    // ======================
+    // 2. PARSING ROBUSTE JSON
+    // ======================
     let keywords = [];
 
     try {
-      const parsed = JSON.parse(content);
+      const cleaned = content
+        .replace(/```json/g, "")
+        .replace(/```/g, "")
+        .trim();
+
+      const parsed = JSON.parse(cleaned);
       keywords = parsed.keywords || [];
     } catch (e) {
       console.log("❌ JSON PARSE ERROR =>", e.message);
@@ -226,7 +244,9 @@ Règles :
 
     console.log("🔑 KEYWORDS =>", keywords);
 
-    // 2. RECHERCHE MYSQL FULLTEXT
+    // ======================
+    // 3. SEARCH MYSQL (FULLTEXT + BOOLEAN MODE)
+    // ======================
     const db = require("../db");
 
     const searchQuery = keywords.map(k => `+${k}`).join(" ");
@@ -234,15 +254,21 @@ Règles :
     console.log("SQL SEARCH =>", searchQuery);
 
     const [products] = await db.query(`
-      SELECT *
+      SELECT *,
+      MATCH(title, description, category)
+      AGAINST (? IN BOOLEAN MODE) AS score
       FROM products
       WHERE MATCH(title, description, category)
       AGAINST (? IN BOOLEAN MODE)
+      ORDER BY score DESC
       LIMIT 50
-    `, [searchQuery]);
+    `, [searchQuery, searchQuery]);
 
     console.log("📦 PRODUCTS FOUND =>", products.length);
 
+    // ======================
+    // 4. RESPONSE FINAL
+    // ======================
     return res.json({
       success: true,
       query,
@@ -260,10 +286,5 @@ Règles :
     });
   }
 });
-
-
-
-
-
 
 module.exports = router;
