@@ -342,4 +342,123 @@ if (!products || products.length === 0) {
   }
 });
 
+
+
+
+
+
+
+
+
+
+
+// ======================
+// IA - AUTO CREATION PRODUIT SHOPNET
+// ======================
+router.post("/generate-product", async (req, res) => {
+  try {
+    const { prompt } = req.body;
+
+    if (!prompt) {
+      return res.status(400).json({
+        success: false,
+        message: "prompt est obligatoire"
+      });
+    }
+
+    console.log("🚀 AI PRODUCT GENERATION =>", prompt);
+
+    const response = await axios.post(
+      "https://api.groq.com/openai/v1/chat/completions",
+      {
+        model: "llama-3.1-8b-instant",
+        messages: [
+          {
+            role: "system",
+            content: `
+Tu es SHOPNET AI PRODUCT CREATOR.
+
+Ton rôle :
+Transformer une idée utilisateur en fiche produit e-commerce complète.
+
+IMPORTANT :
+- Retourne UNIQUEMENT du JSON valide
+- Aucun texte
+- Aucun commentaire
+
+FORMAT OBLIGATOIRE :
+{
+  "title": "string",
+  "description": "string",
+  "category": "string",
+  "price": number,
+  "tags": ["tag1", "tag2", "tag3"],
+  "confidence": number
+}
+
+RÈGLES :
+- prix réaliste
+- description courte et vendeuse
+- tags SEO utiles
+            `
+          },
+          {
+            role: "user",
+            content: prompt
+          }
+        ],
+        temperature: 0.4
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+          "Content-Type": "application/json"
+        }
+      }
+    );
+
+    const content = response.data.choices?.[0]?.message?.content;
+
+    let product;
+
+    try {
+      const cleaned = content
+        .replace(/```json/g, "")
+        .replace(/```/g, "")
+        .trim();
+
+      product = JSON.parse(cleaned);
+    } catch (err) {
+      return res.status(500).json({
+        success: false,
+        error: "IA JSON parsing failed"
+      });
+    }
+
+    return res.json({
+      success: true,
+      prompt,
+      product
+    });
+
+  } catch (error) {
+    console.log("❌ GENERATE PRODUCT ERROR:", error.response?.data || error.message);
+
+    return res.status(500).json({
+      success: false,
+      error: "generate product error"
+    });
+  }
+});
+
+
+
+
+
+
+
+
+
+
+
 module.exports = router;
