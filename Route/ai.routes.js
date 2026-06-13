@@ -144,18 +144,11 @@ RÈGLES :
   }
 });
 
-
-
-// ======================
-// IA GROQ - SEARCH INTELLIGENTE SHOPNET (PRO)
-// ======================
 router.post("/search", async (req, res) => {
   try {
-    console.log("========== AI SEARCH HIT ==========");
+    console.log("========== SHOPNET AI SEARCH ==========");
 
     const query = req.body?.query;
-
-    console.log("QUERY =>", query);
 
     if (!query) {
       return res.status(400).json({
@@ -164,10 +157,10 @@ router.post("/search", async (req, res) => {
       });
     }
 
-    console.log("🚀 ENVOI VERS GROQ...");
+    console.log("QUERY =>", query);
 
     // ======================
-    // 1. IA INTELLIGENTE (PROMPT OPTIMISÉ)
+    // 1. IA (EXTRACTION INTENTION)
     // ======================
     const groqResponse = await axios.post(
       "https://api.groq.com/openai/v1/chat/completions",
@@ -177,31 +170,36 @@ router.post("/search", async (req, res) => {
           {
             role: "system",
             content: `
-Tu es SHOPNET AI SEARCH ENGINE, un moteur de recherche e-commerce ultra intelligent.
+Tu es un moteur de recherche e-commerce.
 
-TON OBJECTIF :
-Comprendre l'intention réelle de l'utilisateur et générer des mots-clés utiles pour trouver des produits.
+Ton rôle :
+- Comprendre l'intention utilisateur
+- Extraire uniquement les mots utiles pour rechercher des produits
 
-RÈGLES IMPORTANTES :
+RÈGLES STRICTES :
 - Retourne UNIQUEMENT du JSON valide
-- Aucun texte, aucune explication
-- Ajoute des synonymes et intentions
-- Ajoute des caractéristiques produits possibles
+- Pas de texte
+- Pas d'explication
+- Pas de mots inutiles
+
+IMPORTANT :
+- garde seulement les mots importants produits (type produit, marque, catégorie)
+- ignore les mots inutiles (je veux, cherche, un, de, avec)
 
 EXEMPLES :
 
-"téléphone batterie longue durée"
-→ ["téléphone", "batterie", "6000mAh", "autonomie", "longue durée"]
+"je cherche un ordinateur puissant pour gaming"
+→ ["ordinateur", "gaming", "puissant"]
 
-"iphone pas cher"
-→ ["iphone", "apple", "budget", "pas cher", "occasion"]
+"je veux un téléphone bonne batterie"
+→ ["téléphone", "batterie"]
 
-"ordinateur gaming puissant"
-→ ["ordinateur", "gaming", "RTX", "puissant", "ram", "carte graphique"]
+"chaussure de sport nike"
+→ ["chaussure", "sport", "nike"]
 
-FORMAT OBLIGATOIRE :
+FORMAT :
 {
-  "keywords": ["mot1", "mot2", "mot3"]
+  "keywords": ["mot1", "mot2"]
 }
             `
           },
@@ -210,7 +208,7 @@ FORMAT OBLIGATOIRE :
             content: query
           }
         ],
-        temperature: 0.3
+        temperature: 0.2
       },
       {
         headers: {
@@ -225,7 +223,7 @@ FORMAT OBLIGATOIRE :
     console.log("🔥 GROQ RAW =>", content);
 
     // ======================
-    // 2. PARSING ROBUSTE JSON
+    // 2. PARSING SAFE
     // ======================
     let keywords = [];
 
@@ -238,22 +236,29 @@ FORMAT OBLIGATOIRE :
       const parsed = JSON.parse(cleaned);
       keywords = parsed.keywords || [];
     } catch (e) {
-      console.log("❌ JSON PARSE ERROR =>", e.message);
+      console.log("❌ JSON ERROR => fallback");
       keywords = query.split(" ");
     }
 
     console.log("🔑 KEYWORDS =>", keywords);
 
-    // ======================
-    // 3. SEARCH MYSQL (FULLTEXT + BOOLEAN MODE)
-    // ======================
     const db = require("../db");
 
-    const searchQuery = keywords.map(k => `+${k}`).join(" ");
+    // ======================
+    // 3. NETTOYAGE FINAL
+    // ======================
+    const cleanKeywords = keywords
+      .map(k => k.toLowerCase())
+      .filter(k => k.length > 2);
 
-    console.log("SQL SEARCH =>", searchQuery);
+    console.log("🧹 CLEAN =>", cleanKeywords);
 
-    const [products] = await db.query(`
+    // ======================
+    // 4. FULLTEXT SEARCH (PRIORITY)
+    // ======================
+    const searchQuery = cleanKeywords.map(k => `+${k}`).join(" ");
+
+    let [products] = await db.query(`
       SELECT *,
       MATCH(title, description, category)
       AGAINST (? IN BOOLEAN MODE) AS score
@@ -264,21 +269,37 @@ FORMAT OBLIGATOIRE :
       LIMIT 50
     `, [searchQuery, searchQuery]);
 
-    console.log("📦 PRODUCTS FOUND =>", products.length);
+    // ======================
+    // 5. FALLBACK SI AUCUN RÉSULTAT
+    // ======================
+    if (!products || products.length === 0) {
+      console.log("⚠️ FULLTEXT EMPTY → fallback LIKE");
+
+      const likeQuery = `%${cleanKeywords.join(" ")}%`;
+
+      [products] = await db.query(`
+        SELECT *
+        FROM products
+        WHERE title LIKE ?
+        OR description LIKE ?
+        OR category LIKE ?
+        LIMIT 50
+      `, [likeQuery, likeQuery, likeQuery]);
+    }
 
     // ======================
-    // 4. RESPONSE FINAL
+    // 6. RESPONSE FINAL
     // ======================
     return res.json({
       success: true,
       query,
-      keywords,
+      keywords: cleanKeywords,
       count: products.length,
       products
     });
 
   } catch (error) {
-    console.log("❌ SEARCH ERROR FULL =>", error.response?.data || error.message);
+    console.log("❌ SEARCH ERROR =>", error.response?.data || error.message);
 
     return res.status(500).json({
       success: false,
