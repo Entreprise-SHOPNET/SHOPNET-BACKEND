@@ -256,36 +256,62 @@ FORMAT :
     // ======================
     // 4. FULLTEXT SEARCH (PRIORITY)
     // ======================
-    const searchQuery = cleanKeywords.map(k => `+${k}`).join(" ");
+// ======================
+// 4. FULLTEXT SEARCH (PRIORITY) + IMAGE
+// ======================
+const searchQuery = cleanKeywords.map(k => `+${k}`).join(" ");
 
-    let [products] = await db.query(`
-      SELECT *,
-      MATCH(title, description, category)
-      AGAINST (? IN BOOLEAN MODE) AS score
-      FROM products
-      WHERE MATCH(title, description, category)
-      AGAINST (? IN BOOLEAN MODE)
-      ORDER BY score DESC
-      LIMIT 50
-    `, [searchQuery, searchQuery]);
+let [products] = await db.query(`
+  SELECT 
+    p.*,
 
-    // ======================
-    // 5. FALLBACK SI AUCUN RÉSULTAT
-    // ======================
-    if (!products || products.length === 0) {
-      console.log("⚠️ FULLTEXT EMPTY → fallback LIKE");
+    -- 🔥 AJOUT IMAGE PRINCIPALE
+    (
+      SELECT pi.absolute_url
+      FROM product_images pi
+      WHERE pi.product_id = p.id
+      ORDER BY pi.is_primary DESC, pi.id ASC
+      LIMIT 1
+    ) AS image_url,
 
-      const likeQuery = `%${cleanKeywords.join(" ")}%`;
+    MATCH(p.title, p.description, p.category)
+    AGAINST (? IN BOOLEAN MODE) AS score
 
-      [products] = await db.query(`
-        SELECT *
-        FROM products
-        WHERE title LIKE ?
-        OR description LIKE ?
-        OR category LIKE ?
-        LIMIT 50
-      `, [likeQuery, likeQuery, likeQuery]);
-    }
+  FROM products p
+  WHERE MATCH(p.title, p.description, p.category)
+  AGAINST (? IN BOOLEAN MODE)
+  ORDER BY score DESC
+  LIMIT 50
+`, [searchQuery, searchQuery]);
+
+// ======================
+// 5. FALLBACK SI AUCUN RÉSULTAT + IMAGE
+// ======================
+if (!products || products.length === 0) {
+  console.log("⚠️ FULLTEXT EMPTY → fallback LIKE");
+
+  const likeQuery = `%${cleanKeywords.join(" ")}%`;
+
+  [products] = await db.query(`
+    SELECT 
+      p.*,
+
+      -- 🔥 IMAGE AUSSI ICI
+      (
+        SELECT pi.absolute_url
+        FROM product_images pi
+        WHERE pi.product_id = p.id
+        ORDER BY pi.is_primary DESC, pi.id ASC
+        LIMIT 1
+      ) AS image_url
+
+    FROM products p
+    WHERE p.title LIKE ?
+    OR p.description LIKE ?
+    OR p.category LIKE ?
+    LIMIT 50
+  `, [likeQuery, likeQuery, likeQuery]);
+}
 
     // ======================
     // 6. RESPONSE FINAL
