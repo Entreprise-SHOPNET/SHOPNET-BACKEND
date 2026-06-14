@@ -2404,6 +2404,8 @@ router.get('/ai/nearby', async (req, res) => {
 
 // ----------------------------
 // GET /products — FEED PUBLIC
+// ----------------------------// ----------------------------
+// GET /products — FEED PUBLIC
 // ----------------------------
 router.get('/', async (req, res) => {
   try {
@@ -2419,7 +2421,9 @@ router.get('/', async (req, res) => {
       try { return JSON.parse(value); } catch { return []; }
     };
 
-    // Récupération des produits depuis la base
+    // =========================
+    // GET PRODUCTS
+    // =========================
     const [products] = await db.query(`
       SELECT 
         p.*,
@@ -2459,7 +2463,44 @@ router.get('/', async (req, res) => {
 
     const CLOUDINARY_BASE = `https://res.cloudinary.com/${process.env.CLOUD_NAME}/image/upload/`;
 
-    // Formatage final pour le frontend
+    // =========================
+    // 🔥 VIEW SYSTEM (MYSQL ONLY)
+    // =========================
+    if (userId) {
+      for (const p of products) {
+        try {
+          // vérifier si déjà vu
+          const [existing] = await db.query(
+            `SELECT id FROM product_views
+             WHERE user_id = ? AND product_id = ?`,
+            [userId, p.id]
+          );
+
+          if (existing.length === 0) {
+            // enregistrer vue définitive
+            await db.query(
+              `INSERT INTO product_views (user_id, product_id)
+               VALUES (?, ?)`,
+              [userId, p.id]
+            );
+
+            // incrément compteur
+            await db.query(
+              `UPDATE products
+               SET views_count = COALESCE(views_count, 0) + 1
+               WHERE id = ?`,
+              [p.id]
+            );
+          }
+        } catch (err) {
+          console.log("view error:", err.message);
+        }
+      }
+    }
+
+    // =========================
+    // FORMAT RESPONSE
+    // =========================
     const formatted = products.map(p => {
       const parsedImages = parseJson(p.image_urls).map(img =>
         img.startsWith("http") ? img : `${CLOUDINARY_BASE}${img}`
@@ -2471,11 +2512,12 @@ router.get('/', async (req, res) => {
         description: p.description,
         price: Number(p.price),
         original_price: p.original_price ? Number(p.original_price) : null,
-        images: parsedImages,      // affichage front
-        image_urls: parsedImages,  // communique correctement avec le frontend
+        images: parsedImages,
+        image_urls: parsedImages,
         likes: p.likes_count || 0,
         shares: p.shares_count || 0,
         comments: p.comments_count || 0,
+        views: p.views_count || 0,
         isLiked: Boolean(p.isLiked),
         isPromotion: Boolean(p.is_boosted),
         seller: {
@@ -2502,8 +2544,6 @@ router.get('/', async (req, res) => {
     res.status(500).json({ success: false });
   }
 });
-
-
 
 
 // ----------------------------
