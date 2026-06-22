@@ -5,6 +5,8 @@ const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken'); // 🔑 Import du module JWT
+const authMiddleware = require('../middlewares/authMiddleware');
+
 
 router.post('/login', async (req, res) => {
   try {
@@ -203,6 +205,114 @@ router.post('/reset-password', async (req, res) => {
 
   } catch (error) {
     console.error("Erreur reset-password:", error);
+    res.status(500).json({
+      success: false,
+      message: "Erreur interne du serveur"
+    });
+  }
+});
+
+
+
+//------------------------------------------------//
+// CHANGER MOT DE PASSE UTILISATEUR CONNECTÉ
+//------------------------------------------------//
+
+router.put('/change-password', authMiddleware, async (req, res) => {
+  try {
+
+    const {
+      currentPassword,
+      newPassword,
+      confirmPassword
+    } = req.body;
+
+    // Vérification des champs
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      return res.status(400).json({
+        success: false,
+        message: "Tous les champs sont requis"
+      });
+    }
+
+    // Vérification confirmation
+    if (newPassword !== confirmPassword) {
+      return res.status(400).json({
+        success: false,
+        message: "Les mots de passe ne correspondent pas"
+      });
+    }
+
+    // Longueur minimale
+    if (newPassword.length < 6) {
+      return res.status(400).json({
+        success: false,
+        message: "Le nouveau mot de passe doit contenir au moins 6 caractères"
+      });
+    }
+
+    // Récupérer utilisateur connecté
+    const [users] = await req.db.query(
+      `SELECT id, password
+       FROM utilisateurs
+       WHERE id = ?`,
+      [req.userId]
+    );
+
+    if (users.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Utilisateur introuvable"
+      });
+    }
+
+    const user = users[0];
+
+    // Vérifier ancien mot de passe
+    const isMatch = await bcrypt.compare(
+      currentPassword,
+      user.password
+    );
+
+    if (!isMatch) {
+      return res.status(401).json({
+        success: false,
+        message: "Mot de passe actuel incorrect"
+      });
+    }
+
+    // Empêcher même mot de passe
+    const samePassword = await bcrypt.compare(
+      newPassword,
+      user.password
+    );
+
+    if (samePassword) {
+      return res.status(400).json({
+        success: false,
+        message: "Le nouveau mot de passe doit être différent de l'ancien"
+      });
+    }
+
+    // Hasher nouveau mot de passe
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+
+    // Mise à jour
+    await req.db.query(
+      `UPDATE utilisateurs
+       SET password = ?
+       WHERE id = ?`,
+      [hashedPassword, req.userId]
+    );
+
+    res.json({
+      success: true,
+      message: "Mot de passe modifié avec succès"
+    });
+
+  } catch (error) {
+    console.error("Erreur change-password :", error);
+
     res.status(500).json({
       success: false,
       message: "Erreur interne du serveur"
