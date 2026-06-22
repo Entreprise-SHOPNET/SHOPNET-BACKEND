@@ -321,4 +321,83 @@ router.put('/change-password', authMiddleware, async (req, res) => {
 });
 
 
+
+
+
+
+//------------------------------------------------//
+// AJOUT / CHANGEMENT EMAIL UTILISATEUR CONNECTÉ
+//------------------------------------------------//
+
+router.put('/change-email', authMiddleware, async (req, res) => {
+  try {
+
+    const { email } = req.body;
+
+    // 1. Vérification champ
+    if (!email) {
+      return res.status(400).json({
+        success: false,
+        message: "Email requis"
+      });
+    }
+
+    // 2. Validation format email
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(email)) {
+      return res.status(400).json({
+        success: false,
+        message: "Format d'email invalide"
+      });
+    }
+
+    // 3. Vérifier si email existe déjà
+    const [existing] = await req.db.query(
+      `SELECT id FROM utilisateurs WHERE email = ?`,
+      [email]
+    );
+
+    if (existing.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: "Cet email est déjà utilisé"
+      });
+    }
+
+    // 4. Vérifier utilisateur connecté
+    const [users] = await req.db.query(
+      `SELECT id FROM utilisateurs WHERE id = ?`,
+      [req.userId]
+    );
+
+    if (users.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Utilisateur introuvable"
+      });
+    }
+
+    // 5. Mise à jour email
+    await req.db.query(
+      `UPDATE utilisateurs SET email = ? WHERE id = ?`,
+      [email, req.userId]
+    );
+
+    // 6. Réponse succès
+    return res.json({
+      success: true,
+      message: "Email ajouté / modifié avec succès"
+    });
+
+  } catch (error) {
+    console.error("Erreur change-email :", error);
+
+    return res.status(500).json({
+      success: false,
+      message: "Erreur interne du serveur"
+    });
+  }
+});
+
+
 module.exports = router;
