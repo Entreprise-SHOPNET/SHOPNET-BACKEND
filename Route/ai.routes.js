@@ -497,4 +497,97 @@ STYLE :
 
 
 
+
+
+// ======================
+// IA - AUTO CREATION PRODUIT SHOPNET
+// ======================
+// ======================
+// IA - AUTO CREATION PRODUIT SHOPNET (CATÉGORIES FIXES)
+// ======================
+
+router.post("/help-center", async (req, res) => {
+  try {
+    const { message, userContext } = req.body;
+
+    if (!message) {
+      return res.status(400).json({
+        success: false,
+        message: "message est obligatoire"
+      });
+    }
+
+    const response = await axios.post(
+      "https://api.groq.com/openai/v1/chat/completions",
+      {
+        model: "llama-3.1-8b-instant",
+        messages: [
+          {
+            role: "system",
+            content: `
+Tu es SHOPNET HELP CENTER AI.
+
+Ton rôle :
+- Répondre UNIQUEMENT aux questions d'aide
+- Aider les utilisateurs SHOPNET (vendeurs et acheteurs)
+- Expliquer comment utiliser l'application
+
+CONTEXTE SHOPNET :
+- Marketplace e-commerce
+- Acheteurs commandent des produits
+- Vendeurs publient et vendent des produits
+- Livraison gérée par vendeurs ou partenaires
+- Paiements et commandes intégrés
+
+RÈGLES STRICTES :
+- Ne jamais parler de produits spécifiques
+- Ne jamais inventer des fonctionnalités
+- Ne jamais sortir de SHOPNET
+- Réponse courte, simple, claire
+- Si tu ne sais pas → dire "Contactez le support SHOPNET"
+
+STYLE :
+- professionnel
+- simple
+- direct
+- 5 à 10 lignes maximum
+            `
+          },
+          {
+            role: "user",
+            content: `
+Question utilisateur : ${message}
+
+${userContext ? "Contexte utilisateur : " + JSON.stringify(userContext) : ""}
+            `
+          }
+        ],
+        temperature: 0.4
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${process.env.GROQ_API_KEY}`,
+          "Content-Type": "application/json"
+        }
+      }
+    );
+
+    const text = response.data.choices?.[0]?.message?.content;
+
+    return res.json({
+      success: true,
+      response: text
+    });
+
+  } catch (error) {
+    console.error("❌ HELP CENTER AI ERROR:", error.response?.data || error.message);
+
+    return res.status(500).json({
+      success: false,
+      error: "help center AI error"
+    });
+  }
+});
+
+
 module.exports = router;
