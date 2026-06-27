@@ -446,4 +446,59 @@ router.get('/', authMiddleware, async (req, res) => {
   }
 });
 
+
+
+
+router.get('/users/search', async (req, res) => {
+  const q = req.query.q;
+
+  const [users] = await db.query(
+    `
+    SELECT
+      id,
+      fullName,
+      email,
+      avatar
+    FROM utilisateurs
+    WHERE fullName LIKE ?
+    LIMIT 10
+    `,
+    [`%${q}%`]
+  );
+
+  return res.json({
+    success: true,
+    results: users
+  });
+});
+
+
+
+
+
+router.get('/products/search', async (req, res) => {
+  const q = req.query.q;
+
+  const [products] = await db.query(
+    `
+    SELECT
+      id,
+      title,
+      image_url,
+      price
+    FROM products
+    WHERE title LIKE ?
+    LIMIT 10
+    `,
+    [`%${q}%`]
+  );
+
+  return res.json({
+    success: true,
+    results: products
+  });
+});
+
+
+
 module.exports = router;
