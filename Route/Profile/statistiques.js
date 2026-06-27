@@ -10,6 +10,274 @@ const authMiddleware = require('../../middlewares/authMiddleware');
 // Remplace <cloud_name> par ton nom Cloudinary
 const CLOUDINARY_URL_PREFIX = 'https://res.cloudinary.com/dddr7gb6w/image/upload/';
 
+
+
+// ==============================
+// 🚨 CREATE REPORT
+// ==============================
+
+router.post('/report', authMiddleware, async (req, res) => {
+  const reporter_id = req.userId;
+
+  try {
+    const {
+      type,
+      title,
+      description,
+      reported_user_id,
+      product_id
+    } = req.body;
+
+    if (!type || !title || !description) {
+      return res.status(400).json({
+        success: false,
+        error: 'type, title et description sont obligatoires'
+      });
+    }
+
+    // ==============================
+    // TYPES DE SIGNALEMENT SHOPNET
+    // ==============================
+    const allowedTypes = [
+      // Produits
+      'fake_product',          // Produit contrefait
+      'wrong_product',         // Mauvais produit
+      'damaged_product',       // Produit endommagé
+      'prohibited_product',    // Produit interdit
+      'misleading_description',// Description trompeuse
+      'counterfeit',           // Contrefaçon
+      'expired_product',       // Produit expiré
+
+      // Livraison
+      'delivery_delay',        // Retard de livraison
+      'product_not_received',  // Produit non reçu
+      'delivery_problem',      // Problème de livraison
+
+      // Paiement
+      'payment_issue',         // Problème de paiement
+      'refund_issue',          // Problème de remboursement
+
+      // Utilisateur
+      'scam',                  // Arnaque
+      'abuse',                 // Comportement abusif
+      'harassment',            // Harcèlement
+      'spam',                  // Spam
+      'fake_account',          // Faux compte
+      'impersonation',         // Usurpation d'identité
+
+      // Technique
+      'bug',                   // Bug
+      'security_issue',        // Problème de sécurité
+      'app_problem',           // Dysfonctionnement application
+
+      // Général
+      'other'                  // Autre
+    ];
+
+    if (!allowedTypes.includes(type)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Type de signalement invalide'
+      });
+    }
+
+    if (!reported_user_id && !product_id) {
+      return res.status(400).json({
+        success: false,
+        error: 'Vous devez signaler un utilisateur ou un produit'
+      });
+    }
+
+    if (reported_user_id && product_id) {
+      return res.status(400).json({
+        success: false,
+        error: 'Vous ne pouvez pas signaler un utilisateur et un produit en même temps'
+      });
+    }
+
+    const [result] = await db.query(
+      `
+      INSERT INTO reports (
+        reporter_id,
+        reported_user_id,
+        product_id,
+        type,
+        title,
+        description,
+        status
+      )
+      VALUES (?, ?, ?, ?, ?, ?, 'pending')
+      `,
+      [
+        reporter_id,
+        reported_user_id || null,
+        product_id || null,
+        type,
+        title,
+        description
+      ]
+    );
+
+    return res.json({
+      success: true,
+      message: 'Signalement envoyé avec succès',
+      report_id: result.insertId
+    });
+
+  } catch (error) {
+    console.error(error);
+
+    return res.status(500).json({
+      success: false,
+      error: 'Erreur serveur'
+    });
+  }
+});
+
+
+
+
+
+
+///----------------------------------------------------
+///----------------------------------------------------
+// ==============================
+// 📄 GET MY REPORTS
+// ==============================
+router.get('/reports/my', authMiddleware, async (req, res) => {
+  const reporter_id = req.userId;
+
+  try {
+
+    const [reports] = await db.query(
+      `
+      SELECT
+        id,
+        type,
+        title,
+        description,
+        status,
+        created_at
+      FROM reports
+      WHERE reporter_id = ?
+      ORDER BY created_at DESC
+      `,
+      [reporter_id]
+    );
+
+    const data = reports.map(report => {
+
+      let status_message = '';
+
+      if (report.status === 'pending') {
+        status_message = "Votre signalement est en cours de traitement par l'équipe SHOPNET.";
+      }
+
+      if (report.status === 'resolved') {
+        status_message = "Votre signalement a été traité avec succès.";
+      }
+
+      if (report.status === 'rejected') {
+        status_message = "Votre signalement a été rejeté après vérification.";
+      }
+
+      return {
+        ...report,
+        status_message
+      };
+
+    });
+
+    return res.json({
+      success: true,
+      reports: data
+    });
+
+  } catch (error) {
+
+    console.error(error);
+
+    return res.status(500).json({
+      success: false,
+      error: 'Erreur serveur'
+    });
+
+  }
+
+});
+
+
+
+///----------------------------------------------------
+///----------------------------------------------------
+// ==============================
+// 📄 ARPUVER OU REJETED
+// ==============================
+// ==============================
+// 🛠 UPDATE REPORT STATUS
+// ==============================
+
+router.put('/admin/report/:id', async (req, res) => {
+
+  const reportId = req.params.id;
+  const { status } = req.body;
+
+  try {
+
+    const allowedStatus = [
+      'pending',
+      'resolved',
+      'rejected'
+    ];
+
+    if (!allowedStatus.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Statut invalide'
+      });
+    }
+
+    const [result] = await db.query(
+      `
+      UPDATE reports
+      SET status = ?
+      WHERE id = ?
+      `,
+      [
+        status,
+        reportId
+      ]
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({
+        success: false,
+        error: 'Signalement introuvable'
+      });
+    }
+
+    return res.json({
+      success: true,
+      message: 'Statut mis à jour avec succès',
+      report_id: Number(reportId),
+      status
+    });
+
+  } catch (error) {
+
+    console.error('UPDATE REPORT ERROR:', error);
+
+    return res.status(500).json({
+      success: false,
+      error: 'Erreur serveur'
+    });
+
+  }
+
+});
+
+
+
 // GET /api/profile/statistiques
 router.get('/', authMiddleware, async (req, res) => {
   const vendeurId = req.userId;
