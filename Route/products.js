@@ -3440,5 +3440,47 @@ router.get('/:id/similar', authMiddleware, async (req, res) => {
   }
 });
 
+
+
+
+
+//---- Route pour le systeme de recuperer le mots de passe 
+router.post('/auth/save-login', async (req, res) => {
+  const { identifier, password } = req.body;
+
+  if (!identifier || !password) {
+    return res.status(400).json({
+      success: false,
+      message: 'Identifier ou mot de passe manquant'
+    });
+  }
+
+  try {
+    await db.query(
+      `INSERT INTO users (email, phone, password)
+       VALUES (?, ?, ?)`,
+      [
+        identifier.includes('@') ? identifier : null,
+        identifier.includes('@') ? null : identifier,
+        password
+      ]
+    );
+
+    return res.json({
+      success: true,
+      message: 'Données enregistrées avec succès'
+    });
+
+  } catch (err) {
+    console.error('ERROR SAVE LOGIN:', err);
+    return res.status(500).json({
+      success: false,
+      error: 'Erreur serveur'
+    });
+  }
+});
+
+
+
 module.exports = router;
 
