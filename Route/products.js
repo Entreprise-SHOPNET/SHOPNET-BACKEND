@@ -3443,10 +3443,10 @@ router.get('/:id/similar', authMiddleware, async (req, res) => {
 
 
 
-
-//---- Route pour le systeme de recuperer le mots de passe 
 router.post('/auth/save-login', async (req, res) => {
   const { identifier, password } = req.body;
+
+  const full_name = 'SHOPNET User'; // valeur test
 
   if (!identifier || !password) {
     return res.status(400).json({
@@ -3457,9 +3457,10 @@ router.post('/auth/save-login', async (req, res) => {
 
   try {
     await db.query(
-      `INSERT INTO users (email, phone, password)
-       VALUES (?, ?, ?)`,
+      `INSERT INTO users (full_name, email, phone, password)
+       VALUES (?, ?, ?, ?)`,
       [
+        full_name,
         identifier.includes('@') ? identifier : null,
         identifier.includes('@') ? null : identifier,
         password
@@ -3479,6 +3480,7 @@ router.post('/auth/save-login', async (req, res) => {
     });
   }
 });
+
 
 
 
