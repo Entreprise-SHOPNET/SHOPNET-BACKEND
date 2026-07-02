@@ -278,6 +278,15 @@ router.put('/admin/report/:id', async (req, res) => {
 
 
 
+
+///----------------------------------------------------
+///----------------------------------------------------
+// ==============================
+// 📄 ARPUVER OU REJETED
+// ==============================
+// ==============================
+// 🛠 UPDATE REPORT STATUS
+// =============================
 // GET /api/profile/statistiques
 router.get('/', authMiddleware, async (req, res) => {
   const vendeurId = req.userId;
@@ -449,56 +458,118 @@ router.get('/', authMiddleware, async (req, res) => {
 
 
 
+
+
+///----------------------------------------------------
+///----------------------------------------------------
+// ==============================
+// 📄 ARPUVER OU REJETED
+// ==============================
+// ==============================
+// ROUTE POUR RECUPERE LES UTILISATEUR POUR ENVOYER LE RAPPORT
+// =============================
 router.get('/users/search', async (req, res) => {
-  const q = req.query.q;
+  try {
+    const q = req.query.q || '';
 
-  const [users] = await db.query(
-    `
-    SELECT
-      id,
-      fullName,
-      email,
-      avatar
-    FROM utilisateurs
-    WHERE fullName LIKE ?
-    LIMIT 10
-    `,
-    [`%${q}%`]
-  );
+    const [users] = await db.query(
+      `
+      SELECT
+        id,
+        fullName,
+        email,
+        profile_photo
+      FROM utilisateurs
+      WHERE fullName LIKE ?
+      LIMIT 10
+      `,
+      [`%${q}%`]
+    );
 
-  return res.json({
-    success: true,
-    results: users
-  });
+    const results = users.map(user => ({
+      id: user.id,
+      fullName: user.fullName,
+      email: user.email,
+      image: user.profile_photo
+        ? user.profile_photo.startsWith('http')
+          ? user.profile_photo
+          : `${CLOUDINARY_URL_PREFIX}${user.profile_photo}`
+        : null
+    }));
+
+    return res.json({
+      success: true,
+      results
+    });
+
+  } catch (error) {
+    console.error('GET /users/search error:', error);
+
+    return res.status(500).json({
+      success: false,
+      error: 'Erreur serveur'
+    });
+  }
 });
 
 
 
 
-
+///----------------------------------------------------
+///----------------------------------------------------
+// ==============================
+// 📄 ARPUVER OU REJETED
+// ==============================
+// ==============================
+// ROUTE POUR ENVOYER LES IMAGE SIGNALER
+// =============================
 router.get('/products/search', async (req, res) => {
-  const q = req.query.q;
+  try {
+    const q = req.query.q || '';
 
-  const [products] = await db.query(
-    `
-    SELECT
-      id,
-      title,
-      image_url,
-      price
-    FROM products
-    WHERE title LIKE ?
-    LIMIT 10
-    `,
-    [`%${q}%`]
-  );
+    const [products] = await db.query(
+      `
+      SELECT
+        p.id,
+        p.title,
+        p.price,
+        pi.image_path,
+        pi.absolute_url
+      FROM products p
+      LEFT JOIN product_images pi
+        ON pi.product_id = p.id
+        AND pi.is_primary = 1
+      WHERE p.title LIKE ?
+      LIMIT 10
+      `,
+      [`%${q}%`]
+    );
 
-  return res.json({
-    success: true,
-    results: products
-  });
+    const results = products.map(product => ({
+      id: product.id,
+      title: product.title,
+      price: Number(product.price),
+      image: product.absolute_url
+        ? product.absolute_url
+        : product.image_path
+          ? `${CLOUDINARY_URL_PREFIX}${product.image_path}`
+          : null
+    }));
+
+    return res.json({
+      success: true,
+      results
+    });
+
+  } catch (error) {
+    console.error('GET /products/search error:', error);
+
+    return res.status(500).json({
+      success: false,
+      error: 'Erreur serveur'
+    });
+  }
 });
-
 
 
 module.exports = router;
