@@ -472,6 +472,10 @@ router.get('/users/search', async (req, res) => {
   try {
     const q = req.query.q || '';
 
+    if (!q.trim()) {
+      return res.json({ success: true, results: [] });
+    }
+
     const [users] = await db.query(
       `
       SELECT
@@ -491,9 +495,9 @@ router.get('/users/search', async (req, res) => {
       fullName: user.fullName,
       email: user.email,
       image: user.profile_photo
-        ? user.profile_photo.startsWith('http')
-          ? user.profile_photo
-          : `${CLOUDINARY_URL_PREFIX}${user.profile_photo}`
+        ? (user.profile_photo.startsWith('http')
+            ? user.profile_photo
+            : `${CLOUDINARY_URL_PREFIX}${user.profile_photo}`)
         : null
     }));
 
@@ -511,7 +515,6 @@ router.get('/users/search', async (req, res) => {
     });
   }
 });
-
 
 
 
