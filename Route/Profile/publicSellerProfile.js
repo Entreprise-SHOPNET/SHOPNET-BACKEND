@@ -75,7 +75,6 @@ router.get("/sellers/:id/products", async (req, res) => {
   const offset = (page - 1) * limit;
 
   try {
-    // 1. Vérifier que le vendeur existe
     const [sellerCheck] = await db.query(
       "SELECT id FROM utilisateurs WHERE id = ? LIMIT 1",
       [sellerId]
@@ -84,13 +83,11 @@ router.get("/sellers/:id/products", async (req, res) => {
       return res.status(404).json({ success: false, error: "Vendeur non trouvé" });
     }
 
-    // 2. Compter le nombre total de produits du vendeur
     const [[{ total }]] = await db.query(
       "SELECT COUNT(*) AS total FROM products WHERE seller_id = ?",
       [sellerId]
     );
 
-    // 3. Récupérer les produits avec pagination
     const [products] = await db.query(
       `
       SELECT 
@@ -130,7 +127,6 @@ router.get("/sellers/:id/products", async (req, res) => {
       images: prod.images || [],
     }));
 
-    // 4. Calculer le nombre total de pages
     const totalPages = Math.ceil(total / limit);
 
     return res.json({
