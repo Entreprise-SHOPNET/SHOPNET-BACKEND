@@ -65,13 +65,13 @@ router.get("/sellers/:id", async (req, res) => {
 });
 
 // ================================================================
-// 2. ROUTE PRODUITS DU VENDEUR (PAGINÉE) - LIMIT = 5
+// 2. ROUTE PRODUITS DU VENDEUR (PAGINÉE)
 //    GET /api/sellers/:id/products?page=1&limit=5
 // ================================================================
 router.get("/sellers/:id/products", async (req, res) => {
   const sellerId = req.params.id;
   const page = parseInt(req.query.page) || 1;
-  const limit = parseInt(req.query.limit) || 5; // ← modifié à 5
+  const limit = parseInt(req.query.limit) || 5;
   const offset = (page - 1) * limit;
 
   try {
