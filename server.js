@@ -637,7 +637,10 @@ const analyticsRoutes = require('./Route/BoutiquePremium/Analytics');  // Analyt
 const commandesAdminRouter = require('./Route/admin/CommandesPayeAdmin');  //Route pour les Tableau de bord de commandePaye
 const assistantIaRoutes = require("./ia_statique/Routes/AssistantIA");  //Route pour Stastistique IA sur Vendeur IA
 const aiRoutes = require('./Route/ai.routes'); //Route pour les Inteligence artificiel Groq AI
-
+//------------------------
+//SYSTEME DE FOLLOWERS
+//------------------------
+const followerRoutes = require("./Route/Followers/followerRoutes");
 
 //----------------------------------------------------------------------------------------------//
 //---------------------------------------------------------------------------------------------//
@@ -680,6 +683,13 @@ app.use('/api/analytics', analyticsRoutes);    // Analytics Boutique Premium
 app.use('/admin', commandesAdminRouter);   //Route pour les Tableau de bord de commandePaye
 app.use("/assistant-ia", assistantIaRoutes);  //Route pour Stastistique IA sur Vendeur IA
 app.use('/api/ai', aiRoutes);  //Route pour les Inteligence artificiel Groq AI
+//------------------------
+//SYSTEME DE FOLLOWERS
+//------------------------
+app.use("/api/followers", followerRoutes);
+
+
+
 
 
 
