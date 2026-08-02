@@ -259,7 +259,7 @@ Reviens maintenant pour finaliser ton achat en toute sécurité.`;
 
           // 🟡 6h - 12h
           else if (hours >= 6 && hours < 12) {
-            notifTitle = '⏳ Toujours disponible';
+            notifTitle = '⏳ Toujours disponible sur SHOPNET';
 
             message = `"${title}" à ${price} USD est toujours dans ton panier 💡. 
 Ce produit attire de l’attention en ce moment. 
