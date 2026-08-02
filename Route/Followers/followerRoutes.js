@@ -140,7 +140,6 @@ router.get("/count/:sellerId", async (req, res) => {
     });
   }
 });
-
 // ======================================================
 // LISTE DES ABONNÉS DU VENDEUR CONNECTÉ
 // GET /api/followers/list
@@ -155,6 +154,7 @@ router.get("/list", authMiddleware, async (req, res) => {
       SELECT
         u.id,
         u.fullName,
+        u.phone,
         u.profile_photo,
         u.avatar,
         u.role,
@@ -174,6 +174,7 @@ router.get("/list", authMiddleware, async (req, res) => {
     const formattedFollowers = followers.map((follower) => ({
       id: follower.id,
       fullName: follower.fullName,
+      phone: follower.phone,
       profilePhoto: follower.profile_photo || follower.avatar || null,
       role: follower.role,
       followedAt: follower.created_at,
@@ -186,11 +187,11 @@ router.get("/list", authMiddleware, async (req, res) => {
     });
   } catch (error) {
     console.error("FOLLOWERS LIST ERROR:", error);
+
     return res.status(500).json({
       success: false,
       message: "Erreur serveur",
     });
   }
 });
-
 module.exports = router;
