@@ -590,4 +590,347 @@ ${userContext ? "Contexte utilisateur : " + JSON.stringify(userContext) : ""}
 });
 
 
+
+
+
+
+// ======================================================
+// SHOPNET AI MARKETING CAMPAIGN GENERATOR
+// Génération complète de campagne marketing vendeur
+//
+// POST /api/ai/marketing-campaign
+// ======================================================
+
+
+router.post("/marketing-campaign", async (req, res) => {
+
+  try {
+
+
+    const {
+      productName,
+      category,
+      price,
+      oldPrice,
+      discount,
+      productDescription,
+      targetCustomer,
+      objective
+    } = req.body;
+
+
+
+    if(!productName){
+
+      return res.status(400).json({
+
+        success:false,
+
+        message:"productName obligatoire"
+
+      });
+
+    }
+
+
+
+
+    const response = await axios.post(
+
+      "https://api.groq.com/openai/v1/chat/completions",
+
+
+      {
+
+        model:"llama-3.1-8b-instant",
+
+
+        messages:[
+
+
+          {
+
+            role:"system",
+
+            content:`
+
+Tu es SHOPNET MARKETING AI PRO.
+
+Tu es un expert international en marketing digital e-commerce avec une expérience similaire aux équipes marketing de Amazon, Shopify et grandes marketplaces.
+
+Ton rôle est de créer une campagne marketing professionnelle pour un vendeur SHOPNET.
+
+Tu dois comprendre :
+- Le comportement des acheteurs en ligne.
+- La psychologie d'achat.
+- Comment créer de la confiance.
+- Comment donner envie de cliquer sur une notification.
+- Comment augmenter les ventes sans exagération.
+
+
+OBJECTIF :
+
+Créer une notification marketing humaine, naturelle et convaincante qui ressemble à un message écrit par un vrai vendeur professionnel.
+
+
+IMPORTANT :
+
+- Ne jamais écrire comme un robot.
+- Utiliser un langage simple et chaleureux.
+- Mettre en avant la valeur du produit.
+- Créer une connexion émotionnelle avec le client.
+- Donner envie de découvrir le produit.
+- Ne jamais inventer des caractéristiques inexistantes.
+- Ne jamais promettre des résultats impossibles.
+
+
+LA REPONSE DOIT ETRE UNIQUEMENT UN JSON VALIDE.
+
+
+FORMAT OBLIGATOIRE :
+
+
+{
+ "title":"",
+ "short_message":"",
+ "long_description":"",
+ "advantages":[
+    "",
+    "",
+    ""
+ ],
+ "marketing_strategy":"",
+ "call_to_action":"",
+ "type":"promotion"
+}
+
+
+
+EXPLICATION DES CHAMPS :
+
+
+title :
+Titre court très attirant maximum 60 caractères.
+Exemple:
+🔥 Offre spéciale sur votre nouveau style
+
+
+short_message :
+Message notification mobile maximum 200 caractères.
+
+
+long_description :
+Description marketing longue entre 5 et 10 lignes.
+Elle doit expliquer :
+- pourquoi acheter ce produit
+- pour quel type de client
+- quels problèmes il résout
+- pourquoi maintenant
+
+
+advantages :
+Liste de 3 à 5 avantages réels du produit.
+
+
+marketing_strategy :
+Explique la stratégie utilisée :
+(exemple : urgence, nouveauté, confiance, économie)
+
+
+call_to_action :
+Action claire :
+- Découvrir maintenant
+- Commander aujourd'hui
+- Voir le produit
+
+
+STYLE :
+Professionnel.
+Humain.
+Confiant.
+Comme une grande marque e-commerce.
+
+
+
+`
+
+          },
+
+
+          {
+
+
+            role:"user",
+
+
+            content:`
+
+Voici les informations du produit :
+
+
+Nom :
+${productName}
+
+
+Catégorie :
+${category || "Non définie"}
+
+
+Prix actuel :
+${price || "Non défini"}
+
+
+Ancien prix :
+${oldPrice || "Non défini"}
+
+
+Réduction :
+${discount || "Aucune"}
+
+
+Description existante :
+${productDescription || "Aucune description"}
+
+
+Client cible :
+${targetCustomer || "Tous les clients SHOPNET"}
+
+
+Objectif :
+${objective || "Augmenter les ventes"}
+
+
+Crée une campagne marketing complète.
+
+
+`
+
+          }
+
+
+        ],
+
+
+        temperature:0.7
+
+
+      },
+
+
+      {
+
+
+        headers:{
+
+
+          Authorization:
+          `Bearer ${process.env.GROQ_API_KEY}`,
+
+
+          "Content-Type":"application/json"
+
+
+        }
+
+
+      }
+
+
+    );
+
+
+
+
+    const content =
+      response.data.choices?.[0]?.message?.content;
+
+
+
+
+    let campaign;
+
+
+
+    try{
+
+
+      const clean = content
+
+      .replace(/```json/g,"")
+
+      .replace(/```/g,"")
+
+      .trim();
+
+
+
+      campaign = JSON.parse(clean);
+
+
+
+    }catch(error){
+
+
+      console.log("JSON AI ERROR:",content);
+
+
+
+      return res.status(500).json({
+
+        success:false,
+
+        message:"Format IA invalide"
+
+      });
+
+
+    }
+
+
+
+
+
+    return res.json({
+
+
+      success:true,
+
+
+      campaign
+
+
+
+    });
+
+
+
+
+
+  }catch(error){
+
+
+    console.error(
+
+      "❌ MARKETING CAMPAIGN AI ERROR:",
+
+      error.response?.data || error.message
+
+    );
+
+
+
+    res.status(500).json({
+
+      success:false,
+
+      message:"Erreur génération campagne IA"
+
+    });
+
+
+  }
+
+
+});
+
 module.exports = router;
