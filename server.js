@@ -640,7 +640,8 @@ const aiRoutes = require('./Route/ai.routes'); //Route pour les Inteligence arti
 //------------------------
 //SYSTEME DE FOLLOWERS
 //------------------------
-const followerRoutes = require("./Route/Followers/followerRoutes");
+const followerRoutes = require("./Route/Followers/followerRoutes");        //Ajouter un followers 
+const sellerAlertRoutes = require("./Route/Followers/sellerAlertRoutes");  //Systeme pour notifier toutes ces abonnes
 
 //----------------------------------------------------------------------------------------------//
 //---------------------------------------------------------------------------------------------//
@@ -686,7 +687,8 @@ app.use('/api/ai', aiRoutes);  //Route pour les Inteligence artificiel Groq AI
 //------------------------
 //SYSTEME DE FOLLOWERS
 //------------------------
-app.use("/api/followers", followerRoutes);
+app.use("/api/followers", followerRoutes);          //Ajouter un followers 
+app.use("/api/seller-alerts", sellerAlertRoutes);   //Systeme pour notifier toutes ces abonnes
 
 
 
