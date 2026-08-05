@@ -592,20 +592,12 @@ ${userContext ? "Contexte utilisateur : " + JSON.stringify(userContext) : ""}
 
 
 
-
-
 // ======================================================
 // SHOPNET AI MARKETING CAMPAIGN GENERATOR
-// Génération complète de campagne marketing vendeur
-//
-// POST /api/ai/marketing-campaign
 // ======================================================
-
-
 router.post("/marketing-campaign", async (req, res) => {
 
   try {
-
 
     const {
       productName,
@@ -619,85 +611,48 @@ router.post("/marketing-campaign", async (req, res) => {
     } = req.body;
 
 
-
-    if(!productName){
-
+    if (!productName) {
       return res.status(400).json({
-
         success:false,
-
         message:"productName obligatoire"
-
       });
-
     }
-
-
 
 
     const response = await axios.post(
 
       "https://api.groq.com/openai/v1/chat/completions",
 
-
       {
-
         model:"llama-3.1-8b-instant",
-
 
         messages:[
 
-
           {
-
             role:"system",
 
             content:`
-
 Tu es SHOPNET MARKETING AI PRO.
 
-Tu es un expert international en marketing digital e-commerce avec une expérience similaire aux équipes marketing de Amazon, Shopify et grandes marketplaces.
-
-Ton rôle est de créer une campagne marketing professionnelle pour un vendeur SHOPNET.
-
-Tu dois comprendre :
-- Le comportement des acheteurs en ligne.
-- La psychologie d'achat.
-- Comment créer de la confiance.
-- Comment donner envie de cliquer sur une notification.
-- Comment augmenter les ventes sans exagération.
-
-
-OBJECTIF :
-
-Créer une notification marketing humaine, naturelle et convaincante qui ressemble à un message écrit par un vrai vendeur professionnel.
-
+Tu crées des campagnes marketing e-commerce professionnelles.
 
 IMPORTANT :
-
-- Ne jamais écrire comme un robot.
-- Utiliser un langage simple et chaleureux.
-- Mettre en avant la valeur du produit.
-- Créer une connexion émotionnelle avec le client.
-- Donner envie de découvrir le produit.
-- Ne jamais inventer des caractéristiques inexistantes.
-- Ne jamais promettre des résultats impossibles.
-
-
-LA REPONSE DOIT ETRE UNIQUEMENT UN JSON VALIDE.
-
+- Retourne UNIQUEMENT un JSON valide.
+- Aucun texte avant.
+- Aucun texte après.
+- Aucun markdown.
 
 FORMAT OBLIGATOIRE :
 
-
 {
  "title":"",
+ "message":"",
  "short_message":"",
  "long_description":"",
  "advantages":[
-    "",
-    "",
-    ""
+   "",
+   "",
+   ""
  ],
  "marketing_strategy":"",
  "call_to_action":"",
@@ -705,70 +660,46 @@ FORMAT OBLIGATOIRE :
 }
 
 
-
-EXPLICATION DES CHAMPS :
-
+REGLES :
 
 title :
-Titre court très attirant maximum 60 caractères.
-Exemple:
-🔥 Offre spéciale sur votre nouveau style
+- Maximum 60 caractères.
+- Doit attirer l'attention.
 
+message :
+- Message notification mobile.
+- Maximum 200 caractères.
 
 short_message :
-Message notification mobile maximum 200 caractères.
-
+- Version courte marketing.
 
 long_description :
-Description marketing longue entre 5 et 10 lignes.
-Elle doit expliquer :
-- pourquoi acheter ce produit
-- pour quel type de client
-- quels problèmes il résout
-- pourquoi maintenant
-
+- Description professionnelle.
 
 advantages :
-Liste de 3 à 5 avantages réels du produit.
-
+- 3 avantages réels minimum.
 
 marketing_strategy :
-Explique la stratégie utilisée :
-(exemple : urgence, nouveauté, confiance, économie)
-
+- Explique la stratégie marketing.
 
 call_to_action :
-Action claire :
-- Découvrir maintenant
-- Commander aujourd'hui
-- Voir le produit
+- Action claire pour acheter.
 
-
-STYLE :
-Professionnel.
+Ne jamais inventer des informations absentes.
+Style :
 Humain.
-Confiant.
-Comme une grande marque e-commerce.
-
-
-
+Professionnel.
+Comme Amazon ou Shopify.
 `
-
           },
 
 
           {
-
-
             role:"user",
-
 
             content:`
 
-Voici les informations du produit :
-
-
-Nom :
+Produit :
 ${productName}
 
 
@@ -776,7 +707,7 @@ Catégorie :
 ${category || "Non définie"}
 
 
-Prix actuel :
+Prix :
 ${price || "Non défini"}
 
 
@@ -788,8 +719,8 @@ Réduction :
 ${discount || "Aucune"}
 
 
-Description existante :
-${productDescription || "Aucune description"}
+Description :
+${productDescription || "Aucune"}
 
 
 Client cible :
@@ -799,45 +730,30 @@ ${targetCustomer || "Tous les clients SHOPNET"}
 Objectif :
 ${objective || "Augmenter les ventes"}
 
-
-Crée une campagne marketing complète.
-
+Crée la campagne marketing.
 
 `
-
           }
-
 
         ],
 
+        temperature:0.5,
 
-        temperature:0.7
-
+        response_format:{
+          type:"json_object"
+        }
 
       },
 
 
       {
-
-
         headers:{
-
-
-          Authorization:
-          `Bearer ${process.env.GROQ_API_KEY}`,
-
-
+          Authorization:`Bearer ${process.env.GROQ_API_KEY}`,
           "Content-Type":"application/json"
-
-
         }
-
-
       }
 
-
     );
-
 
 
 
@@ -846,80 +762,62 @@ Crée une campagne marketing complète.
 
 
 
+    console.log("🔥 MARKETING AI RAW =>", content);
+
+
 
     let campaign;
 
 
+    try {
 
-    try{
 
-
-      const clean = content
-
+      const cleaned = content
       .replace(/```json/g,"")
-
       .replace(/```/g,"")
-
       .trim();
 
 
-
-      campaign = JSON.parse(clean);
-
+      campaign = JSON.parse(cleaned);
 
 
-    }catch(error){
+    } catch(error){
 
 
-      console.log("JSON AI ERROR:",content);
-
+      console.log("❌ JSON ERROR =>", content);
 
 
       return res.status(500).json({
 
         success:false,
-
-        message:"Format IA invalide"
+        message:"IA JSON parsing failed"
 
       });
-
 
     }
 
 
 
-
-
     return res.json({
-
 
       success:true,
 
-
       campaign
-
-
 
     });
 
 
 
-
-
-  }catch(error){
+  } catch(error){
 
 
     console.error(
-
-      "❌ MARKETING CAMPAIGN AI ERROR:",
-
+      "❌ MARKETING CAMPAIGN ERROR:",
       error.response?.data || error.message
-
     );
 
 
-
-    res.status(500).json({
+    return res.status(500).json({
 
       success:false,
 
@@ -927,9 +825,7 @@ Crée une campagne marketing complète.
 
     });
 
-
   }
-
 
 });
 
