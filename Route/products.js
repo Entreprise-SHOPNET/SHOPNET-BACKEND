@@ -2268,23 +2268,26 @@ router.get('/ai/nearby', async (req, res) => {
     // ============================
     // 🧠 1. PRODUITS
     // ============================
-    const [products] = await pool.query(`
-      SELECT 
-        p.*,
-        u.fullName AS seller_name,
-        u.profile_photo AS seller_avatar,
-
-        (
-          SELECT pi.absolute_url
-          FROM product_images pi
-          WHERE pi.product_id = p.id
-          LIMIT 1
-        ) AS image_url
-
-      FROM products p
-      LEFT JOIN utilisateurs u ON p.seller_id = u.id
-      WHERE p.is_active = 1
-    `);
+    // ============================
+    // 🧠 1. PRODUITS
+    // ============================
+        const [products] = await db.query(`
+          SELECT 
+            p.*,
+            u.fullName AS seller_name,
+            u.profile_photo AS seller_avatar,
+        
+            (
+              SELECT pi.absolute_url
+              FROM product_images pi
+              WHERE pi.product_id = p.id
+              LIMIT 1
+            ) AS image_url
+        
+          FROM products p
+          LEFT JOIN utilisateurs u ON p.seller_id = u.id
+          WHERE p.is_active = 1
+        `);
 
     // ============================
     // 🧠 2. IA + DISTANCE SCORING
