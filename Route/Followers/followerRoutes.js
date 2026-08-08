@@ -298,4 +298,180 @@ router.get("/list", authMiddleware, async (req, res) => {
   }
 });
 
+// ======================================================
+// NOUVELLES ROUTES : GESTION D'UNE NOTIFICATION PRÉCISE
+// ======================================================
+
+// GET /api/followers/notifications/:notificationId
+router.get("/notifications/:notificationId", authMiddleware, async (req, res) => {
+  try {
+    const userId = req.userId;
+    const { notificationId } = req.params;
+
+    const [rows] = await db.query(
+      `SELECT * FROM notifications WHERE id = ? AND utilisateur_id = ?`,
+      [notificationId, userId]
+    );
+
+    if (rows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Notification introuvable",
+      });
+    }
+
+    res.json({
+      success: true,
+      notification: rows[0],
+    });
+  } catch (error) {
+    console.error("GET NOTIFICATION ERROR:", error);
+    res.status(500).json({
+      success: false,
+      message: "Erreur serveur",
+    });
+  }
+});
+
+// GET /api/followers/notifications/:notificationId/follower
+router.get("/notifications/:notificationId/follower", authMiddleware, async (req, res) => {
+  try {
+    const userId = req.userId;
+    const { notificationId } = req.params;
+
+    // Vérifier que la notification existe et appartient à l'utilisateur
+    const [notifRows] = await db.query(
+      `SELECT * FROM notifications WHERE id = ? AND utilisateur_id = ?`,
+      [notificationId, userId]
+    );
+
+    if (notifRows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Notification introuvable",
+      });
+    }
+
+    const notification = notifRows[0];
+
+    // Seules les notifications de type "new_follower" sont supportées
+    if (notification.type !== "new_follower") {
+      return res.status(400).json({
+        success: false,
+        message: "Ce type de notification ne correspond pas à un nouvel abonné",
+      });
+    }
+
+    // L'identifiant du follower est dans actor_id (ou entity_id)
+    const followerId = notification.actor_id || notification.entity_id;
+
+    const [userRows] = await db.query(
+      `SELECT id, fullName, phone, profile_photo, avatar, role
+       FROM utilisateurs WHERE id = ?`,
+      [followerId]
+    );
+
+    if (userRows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Abonné introuvable",
+      });
+    }
+
+    const user = userRows[0];
+    const follower = {
+      id: user.id,
+      fullName: user.fullName,
+      phone: user.phone,
+      profilePhoto: user.profile_photo || user.avatar || null,
+      role: user.role,
+    };
+
+    res.json({
+      success: true,
+      follower,
+    });
+  } catch (error) {
+    console.error("GET FOLLOWER FROM NOTIFICATION ERROR:", error);
+    res.status(500).json({
+      success: false,
+      message: "Erreur serveur",
+    });
+  }
+});
+
+// PATCH /api/followers/notifications/:notificationId/read
+router.patch("/notifications/:notificationId/read", authMiddleware, async (req, res) => {
+  try {
+    const userId = req.userId;
+    const { notificationId } = req.params;
+
+    // Vérifier appartenance
+    const [notifRows] = await db.query(
+      `SELECT id FROM notifications WHERE id = ? AND utilisateur_id = ?`,
+      [notificationId, userId]
+    );
+
+    if (notifRows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Notification introuvable",
+      });
+    }
+
+    await db.query(
+      `UPDATE notifications SET lu = 1 WHERE id = ? AND utilisateur_id = ?`,
+      [notificationId, userId]
+    );
+
+    res.json({
+      success: true,
+      message: "Notification marquée comme lue",
+    });
+  } catch (error) {
+    console.error("MARK READ ERROR:", error);
+    res.status(500).json({
+      success: false,
+      message: "Erreur serveur",
+    });
+  }
+});
+
+// DELETE /api/followers/notifications/:notificationId
+router.delete("/notifications/:notificationId", authMiddleware, async (req, res) => {
+  try {
+    const userId = req.userId;
+    const { notificationId } = req.params;
+
+    // Vérifier appartenance
+    const [notifRows] = await db.query(
+      `SELECT id FROM notifications WHERE id = ? AND utilisateur_id = ?`,
+      [notificationId, userId]
+    );
+
+    if (notifRows.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "Notification introuvable",
+      });
+    }
+
+    await db.query(
+      `DELETE FROM notifications WHERE id = ? AND utilisateur_id = ?`,
+      [notificationId, userId]
+    );
+
+    res.json({
+      success: true,
+      message: "Notification supprimée",
+    });
+  } catch (error) {
+    console.error("DELETE NOTIFICATION ERROR:", error);
+    res.status(500).json({
+      success: false,
+      message: "Erreur serveur",
+    });
+  }
+});
+
 module.exports = router;
